@@ -111,9 +111,8 @@ Synapse Kernel采用MIT许可证，详情请查看[LICENSE](LICENSE)文件。
 
 ## 📞 联系方式
 
-- **GitHub**: [synapse-os/synapse-kernel](https://github.com/synapse-os/synapse-kernel)
-- **Discord**: [Synapse OS Community](https://discord.gg/synapse-os)
-- **Email**: contact@synapse-os.org
+- **开发者**: 为由崎司献上心脏
+- **邮箱**: 15378707620@163.com
 
 ---
 
