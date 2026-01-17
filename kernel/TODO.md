@@ -1,6 +1,6 @@
 # Synapse Kernel - Known Issues and Future Plans
 
-## 📋 Known Issues (v0.1.0)
+## 📋 Known Issues
 
 ### Core Kernel
 - [ ] Limited system call set (only 11 implemented)
@@ -49,35 +49,35 @@
 
 ## 🚀 Future Plans
 
-### Version 0.2.0 (Next Release)
+### 核心功能扩展
 - [ ] Add 8 more system calls
 - [ ] Implement basic network stack
 - [ ] Add FAT file system support
 - [ ] Enhance process scheduling with priorities
 - [ ] Add signal handling
 
-### Version 0.3.0
+### 架构增强
 - [ ] Implement dynamic module loading
 - [ ] Add PCI bus support
 - [ ] Implement slab allocator for better memory management
 - [ ] Add file permissions
 - [ ] Enhance AI executor capabilities
 
-### Version 0.4.0
+### 设备支持
 - [ ] Add USB support
 - [ ] Implement SMP support
 - [ ] Add swap space
 - [ ] Implement ext2 file system support
 - [ ] Add AI model loading support
 
-### Version 0.5.0
+### 高级功能
 - [ ] Add real-time scheduling
 - [ ] Implement ACPI support
 - [ ] Add SMP support
 - [ ] Enhance network stack with TCP/IP
 - [ ] Add AI-powered debugging tools
 
-### Version 1.0.0 (Stable Release)
+### 长期目标
 - [ ] 64-bit support
 - [ ] Complete POSIX compatibility
 - [ ] Full network stack
@@ -151,4 +151,3 @@ Please report any issues on GitHub:
 ---
 
 **Last Updated**: 2026-01-17
-**Version**: v0.1.0

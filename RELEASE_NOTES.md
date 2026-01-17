@@ -1,4 +1,4 @@
-# Synapse Kernel v0.1.0 Release Notes
+# Synapse Kernel Release Notes
 
 ## 🎉 发布亮点
 
@@ -114,15 +114,6 @@ Synapse Kernel采用MIT许可证，详情请查看[LICENSE](LICENSE)文件。
 - **GitHub**: [synapse-os/synapse-kernel](https://github.com/synapse-os/synapse-kernel)
 - **Discord**: [Synapse OS Community](https://discord.gg/synapse-os)
 - **Email**: contact@synapse-os.org
-
-## 🚀 未来规划
-
-### Version 0.2.0 (Next Release)
-- [ ] Add 8 more system calls
-- [ ] Implement basic network stack
-- [ ] Add FAT file system support
-- [ ] Enhance process scheduling with priorities
-- [ ] Add signal handling
 
 ---
 
