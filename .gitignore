@@ -1,0 +1,89 @@
+# Synapse Kernel .gitignore
+
+# Build artifacts
+synapse.bin
+*.o
+*.bin
+*.iso
+*.img
+*.elf
+*.a
+*.lib
+*.so
+
+# User applications build directory
+apps/bin/
+apps/hello/*.o
+apps/ai_demo/*.o
+
+# Kernel object files
+kernel/*.o
+kernel/boot/*.o
+kernel/mm/*.o
+kernel/proc/*.o
+kernel/fs/*.o
+kernel/loader/*.o
+kernel/drivers/*.o
+
+# Library object files
+lib/*.o
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Editor-specific files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Build logs
+*.log
+build.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Toolchain files
+toolchain/
+toolchain-setup/
+
+# Documentation build files
+docs/_build/
+docs/*.html
+
+# Test files
+*.test
+*.spec
+
+# Generated files
+*.generated.*
+*.auto.*
+
+# Debug files
+core
+core.*
+
+# QEMU files
+qemu.log
+qemu.img
+
+# Scripts that might be generated
+*.sh~
+*.bat~
+
+# Archive files
+*.tar.gz
+*.tar.bz2
+*.zip
+*.rar

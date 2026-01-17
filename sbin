@@ -1,0 +1,284 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <signal.h>
+#include <time.h>
+
+// 进程状态
+#define PROC_STATE_RUNNING  0
+#define PROC_STATE_READY    1
+#define PROC_STATE_BLOCKED  2
+#define PROC_STATE_ZOMBIE   3
+
+// 最大进程数
+#define MAX_PROCS 128
+
+// 进程信息结构体
+typedef struct {
+    pid_t pid;              // 进程ID
+    int state;              // 进程状态
+    char name[32];          // 进程名称
+    int priority;           // 优先级
+    uint64_t total_time;    // 总运行时间
+    uint32_t memory_usage;   // 内存使用量（KB）
+} proc_info_t;
+
+// 系统状态结构体
+typedef struct {
+    time_t timestamp;       // 时间戳
+    int num_procs;          // 进程数量
+    proc_info_t procs[MAX_PROCS];  // 进程列表
+    uint32_t total_memory;   // 总内存（KB）
+    uint32_t free_memory;    // 空闲内存（KB）
+    uint32_t used_memory;    // 已用内存（KB）
+} system_state_t;
+
+// AI操作类型
+#define AI_ACTION_KILL      1
+#define AI_ACTION_PAUSE     2
+#define AI_ACTION_RESUME    3
+#define AI_ACTION_INFO      4
+
+// AI操作请求结构体
+typedef struct {
+    int action;             // 操作类型
+    pid_t pid;              // 目标进程ID
+    char reason[128];        // 操作原因
+    int result;             // 操作结果（输出参数）
+} ai_action_request_t;
+
+// 服务状态
+static int running = 1;
+static system_state_t system_state;
+static int ipc_fd = -1;
+static const char* IPC_FILE = "/tmp/taskmgrd_ipc";
+
+// 信号处理函数
+void sigterm_handler(int signum) {
+    running = 0;
+}
+
+// 读取/proc文件系统，更新系统状态
+void update_system_state() {
+    // 简化实现：模拟读取/proc文件系统
+    system_state.timestamp = time(NULL);
+    
+    // 模拟进程信息
+    system_state.num_procs = 3;
+    
+    // 模拟init进程
+    strcpy(system_state.procs[0].name, "init");
+    system_state.procs[0].pid = 1;
+    system_state.procs[0].state = PROC_STATE_RUNNING;
+    system_state.procs[0].priority = 10;
+    system_state.procs[0].total_time = 100;
+    system_state.procs[0].memory_usage = 4096;
+    
+    // 模拟syslogd进程
+    strcpy(system_state.procs[1].name, "syslogd");
+    system_state.procs[1].pid = 2;
+    system_state.procs[1].state = PROC_STATE_RUNNING;
+    system_state.procs[1].priority = 8;
+    system_state.procs[1].total_time = 50;
+    system_state.procs[1].memory_usage = 2048;
+    
+    // 模拟taskmgrd进程（自己）
+    strcpy(system_state.procs[2].name, "taskmgrd");
+    system_state.procs[2].pid = getpid();
+    system_state.procs[2].state = PROC_STATE_RUNNING;
+    system_state.procs[2].priority = 8;
+    system_state.procs[2].total_time = 30;
+    system_state.procs[2].memory_usage = 2048;
+    
+    // 模拟内存信息
+    system_state.total_memory = 32768;  // 32MB
+    system_state.free_memory = 24576;    // 24MB
+    system_state.used_memory = 8192;     // 8MB
+}
+
+// 打印系统状态
+void print_system_state() {
+    printf("\n[TaskMgr] System State (timestamp: %ld)\n", system_state.timestamp);
+    printf("========================================\n");
+    printf("Processes: %d\n", system_state.num_procs);
+    
+    printf("PID\tState\tName\tPriority\tTime\tMemory(KB)\n");
+    for (int i = 0; i < system_state.num_procs; i++) {
+        proc_info_t* proc = &system_state.procs[i];
+        const char* state_str;
+        
+        switch (proc->state) {
+            case PROC_STATE_RUNNING:
+                state_str = "RUNNING";
+                break;
+            case PROC_STATE_READY:
+                state_str = "READY";
+                break;
+            case PROC_STATE_BLOCKED:
+                state_str = "BLOCKED";
+                break;
+            case PROC_STATE_ZOMBIE:
+                state_str = "ZOMBIE";
+                break;
+            default:
+                state_str = "UNKNOWN";
+                break;
+        }
+        
+        printf("%d\t%s\t%s\t%d\t%d\t%d\n", 
+               proc->pid, state_str, proc->name, proc->priority, 
+               (int)proc->total_time, proc->memory_usage);
+    }
+    
+    printf("\nMemory:\n");
+    printf("Total: %d KB\n", system_state.total_memory);
+    printf("Used: %d KB\n", system_state.used_memory);
+    printf("Free: %d KB\n", system_state.free_memory);
+    printf("========================================\n");
+}
+
+// 安全校验：检查是否允许执行操作
+int security_check(ai_action_request_t* req) {
+    // 不允许终止init进程
+    if (req->pid == 1) {
+        printf("[TaskMgr] Security check failed: Cannot terminate init process\n");
+        return -1;
+    }
+    
+    // 不允许终止任务管理器自己
+    if (req->pid == getpid()) {
+        printf("[TaskMgr] Security check failed: Cannot terminate taskmgrd itself\n");
+        return -1;
+    }
+    
+    // 检查进程是否存在
+    int found = 0;
+    for (int i = 0; i < system_state.num_procs; i++) {
+        if (system_state.procs[i].pid == req->pid) {
+            found = 1;
+            break;
+        }
+    }
+    
+    if (!found) {
+        printf("[TaskMgr] Security check failed: Process %d not found\n", req->pid);
+        return -1;
+    }
+    
+    // 检查操作类型是否合法
+    if (req->action < AI_ACTION_KILL || req->action > AI_ACTION_INFO) {
+        printf("[TaskMgr] Security check failed: Invalid action type %d\n", req->action);
+        return -1;
+    }
+    
+    return 0;
+}
+
+// 执行AI操作
+int execute_ai_action(ai_action_request_t* req) {
+    // 安全检查
+    if (security_check(req) < 0) {
+        return -1;
+    }
+    
+    // 执行操作
+    switch (req->action) {
+        case AI_ACTION_KILL:
+            // 杀死进程
+            printf("[TaskMgr] Killing process %d\n", req->pid);
+            return kill(req->pid, SIGKILL);
+            
+        case AI_ACTION_PAUSE:
+            // 暂停进程
+            printf("[TaskMgr] Pausing process %d\n", req->pid);
+            return kill(req->pid, SIGSTOP);
+            
+        case AI_ACTION_RESUME:
+            // 恢复进程
+            printf("[TaskMgr] Resuming process %d\n", req->pid);
+            return kill(req->pid, SIGCONT);
+            
+        case AI_ACTION_INFO:
+            // 获取进程信息
+            printf("[TaskMgr] Getting info for process %d\n", req->pid);
+            return 0;
+            
+        default:
+            return -1;
+    }
+}
+
+// 处理AI操作请求
+void handle_ai_requests() {
+    ai_action_request_t req;
+    ssize_t bytes_read;
+    
+    // 打开IPC文件
+    int fd = open(IPC_FILE, O_RDONLY | O_CREAT, 0666);
+    if (fd < 0) {
+        perror("Failed to open IPC file");
+        return;
+    }
+    
+    // 读取请求
+    bytes_read = read(fd, &req, sizeof(req));
+    if (bytes_read == sizeof(req)) {
+        printf("[TaskMgr] Received AI action request: type=%d, pid=%d, reason=%s\n", 
+               req.action, req.pid, req.reason);
+        
+        // 执行操作
+        req.result = execute_ai_action(&req);
+        
+        // 写入结果（简化实现：直接输出）
+        printf("[TaskMgr] AI action result: %d\n", req.result);
+    }
+    
+    close(fd);
+}
+
+// 信号处理函数
+void sigusr1_handler(int signum) {
+    // 处理AI请求
+    handle_ai_requests();
+}
+
+int main() {
+    printf("[TaskMgr] Starting task manager daemon (PID: %d)\n", getpid());
+    
+    // 设置信号处理
+    signal(SIGTERM, sigterm_handler);
+    signal(SIGUSR1, sigusr1_handler);
+    
+    // 创建IPC文件
+    int fd = open(IPC_FILE, O_CREAT | O_WRONLY, 0666);
+    if (fd < 0) {
+        perror("Failed to create IPC file");
+        return 1;
+    }
+    close(fd);
+    
+    // 主循环
+    while (running) {
+        // 更新系统状态
+        update_system_state();
+        
+        // 打印系统状态
+        print_system_state();
+        
+        // 处理AI请求
+        handle_ai_requests();
+        
+        // 等待1秒
+        sleep(1);
+    }
+    
+    // 清理IPC文件
+    unlink(IPC_FILE);
+    
+    printf("[TaskMgr] Task manager daemon stopped\n");
+    return 0;
+}
