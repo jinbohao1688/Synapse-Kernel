@@ -9,6 +9,19 @@
 #include <interrupts.h>
 #include <keyboard.h>
 #include <loader/elf.h>
+#include <fs/vfs.h>
+
+typedef long off_t;
+
+/* kwrite is used by sys_write_handler — stub that writes via vga_puts */
+static void kwrite(const void* buf, size_t count) {
+    const char* p = (const char*)buf;
+    size_t i;
+    for (i = 0; i < count; i++) {
+        vga_putc(p[i]);
+        serial_write_char(p[i]);  /* nographic 下可见 */
+    }
+}
 
 // 系统调用表（外部定义，在table.S中）
 extern syscall_handler_t syscall_table[];
@@ -30,7 +43,7 @@ void syscall_handler(struct regs* regs) {
     
     // 检查系统调用号是否有效
     if (syscall_num >= MAX_SYSCALLS) {
-        kprintf("[ERROR] Invalid syscall number: %d\n", syscall_num);
+        serial_write_string("[SYSCALL]\n");
         regs->eax = -1;
         return;
     }
@@ -40,7 +53,7 @@ void syscall_handler(struct regs* regs) {
     if (handler) {
         regs->eax = handler(regs);
     } else {
-        kprintf("[ERROR] Syscall handler not found for %d\n", syscall_num);
+        serial_write_string("[SYSCALL]\n");
         regs->eax = -1;
     }
 }
@@ -111,22 +124,49 @@ int sys_read_handler(struct regs* regs) {
     void* buf = (void*)regs->ecx;
     size_t count = regs->edx;
     
-    // 简化实现：仅处理标准输入（fd=0）
+    // 从串口读（-nographic 模式下键盘走串口）
     if (fd == 0) {
-        // 从键盘读取
-        return keyboard_read(buf, count);
+        char *p = (char *)buf;
+        size_t i = 0;
+        while (i < count) {
+            char c = serial_read_char();
+            p[i++] = c;
+            serial_write_char(c);   /* 回显 */
+            if (c == '\n' || c == '\r') break;
+        }
+        return (int)i;
     }
     
+    // fd > 0: 从文件系统读
+    if (fd > 0 && fd < 16) {
+        extern char open_path_table[16][256];
+        if (open_path_table[fd][0] != 0) {
+            inode_t* inode = NULL;
+            char* basename = NULL;
+            vfs_path_resolve(open_path_table[fd], &inode, &basename);
+            if (inode) {
+                return (int)vfs_read(inode, buf, count, 0);
+            }
+        }
+    }
     return -1;
 }
+
+char open_path_table[16][256];
 
 // SYS_open - 打开文件
 int sys_open_handler(struct regs* regs) {
     const char* path = (const char*)regs->ebx;
-    int flags = regs->ecx;
-    
-    // 简化实现：返回文件描述符1（标准输出）
-    return 1;
+    (void)regs->ecx;
+    static int next_fd = 2;
+    int fd = next_fd;
+    if (next_fd < 15) next_fd++;
+    else next_fd = 2;
+    int i;
+    for (i = 0; i < 255 && path[i]; i++)
+        open_path_table[fd][i] = path[i];
+    open_path_table[fd][i] = 0;
+    return fd;
 }
 
 // SYS_close - 关闭文件
@@ -238,14 +278,31 @@ int sys_execve_handler(struct regs* regs) {
     
     // 简化实现：不处理argv和envp
     
-    kprintf("[EXEC] Process %d executed %s, entry at 0x%x\n", 
-            current_task->pid, path, entry_point);
+    serial_write_string("[SYSCALL]\n");
     
     return 0;
 }
 
 // 初始化系统调用
+extern void syscall_stub(void);
 void syscall_init(void) {
-    // 注册系统调用中断处理函数
-    register_interrupt_handler(0x80, syscall_handler);
+    register_interrupt_handler(0x80, syscall_stub);
+}
+
+/* 汇编 stub 调用此函数，参数直接从寄存器来 */
+int syscall_dispatch(int num, int arg1, int arg2, int arg3) {
+    struct regs r;
+    r.eax = num;
+    r.ebx = arg1;
+    r.ecx = arg2;
+    r.edx = arg3;
+    if (num >= MAX_SYSCALLS || num < 0) {
+        serial_write_string("[SYSCALL] invalid: ");
+        serial_write_hex(num);
+        serial_write_string("\n");
+        return -1;
+    }
+    syscall_handler_t handler = syscall_table[num];
+    if (handler) return handler(&r);
+    return -1;
 }

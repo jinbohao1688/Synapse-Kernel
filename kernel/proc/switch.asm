@@ -5,9 +5,21 @@
 
 ; 全局函数声明
 global switch_to
+global switch_process
 global timer_handler_wrapper
 
 extern timer_interrupt_handler
+
+; switch_process - 进程切换包装函数
+; void switch_process(task_t* next_process)
+switch_process:
+    ; 获取当前任务指针（从全局变量）
+    extern current_task
+    mov eax, [current_task]
+    ; 调用 switch_to(current_task, next_process)
+    mov edx, eax              ; edx = current_task (old)
+    mov eax, [esp + 4]        ; eax = next_process (new)
+    jmp switch_to
 
 ; 上下文切换函数
 switch_to:

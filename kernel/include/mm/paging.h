@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
+// 内核虚拟地址空间布局
+#define KERNEL_HEAP_START 0xC0000000
+
 // 页大小：4KB
 #define PAGE_SIZE 4096
 
@@ -26,22 +29,16 @@
 typedef uint32_t page_entry_t;
 
 // 页目录和页表的结构
-typedef page_entry_t page_directory_t[PAGE_DIR_ENTRIES];
-typedef page_entry_t page_table_t[PAGE_TABLE_ENTRIES];
+typedef page_entry_t page_directory_t;
+typedef page_entry_t page_table_t;
 
-// 物理帧分配器状态
-typedef struct {
-    uint32_t total_frames;     // 总物理帧数
-    uint32_t used_frames;      // 已使用的物理帧数
-    uint32_t* frame_bitmap;    // 物理帧位图
-} frame_allocator_t;
+// Frame allocator
+void init_frame_allocator(uint32_t mem_bytes);
+uint32_t alloc_frame(void);
+void free_frame(uint32_t frame);
 
 // 分页初始化函数
 void init_paging(void);
-
-// 物理帧分配和释放函数
-uint32_t alloc_frame(void);
-void free_frame(uint32_t frame);
 
 // 页表操作函数
 void map_page(void* virtual_addr, uint32_t physical_addr, uint32_t flags);
@@ -55,9 +52,9 @@ void init_kheap(void);
 void get_kheap_info(size_t* total, size_t* used, size_t* free);
 
 // 内存信息获取函数
-size_t get_total_memory(void);
-size_t get_used_memory(void);
-size_t get_free_memory(void);
+uint32_t get_total_memory(void);
+uint32_t get_used_memory(void);
+uint32_t get_free_memory(void);
 
 // 获取内核页目录
 page_directory_t* get_kernel_page_dir(void);

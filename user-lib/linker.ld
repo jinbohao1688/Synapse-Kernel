@@ -1,7 +1,7 @@
 ENTRY(_start)
 
 SECTIONS {
-    . = 0x08048000;  /* ELF standard entry point address */
+    . = 0x00400000;  /* 4MB, within identity-mapped 0-8MB */
     
     .text : {
         *(.text)

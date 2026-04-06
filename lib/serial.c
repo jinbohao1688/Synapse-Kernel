@@ -39,6 +39,16 @@ void serial_write_string(const char* str)
     }
 }
 
+void serial_write_hex(uint32_t val)
+{
+    serial_write_char('0');
+    serial_write_char('x');
+    const char hex_chars[] = "0123456789ABCDEF";
+    for (int i = 7; i >= 0; i--) {
+        serial_write_char(hex_chars[(val >> (i * 4)) & 0xF]);
+    }
+}
+
 bool serial_can_read(void)
 {
     return serial_inb(SERIAL_COM1_BASE + 5) & SERIAL_DATA_READY;
@@ -47,11 +57,14 @@ bool serial_can_read(void)
 char serial_read_char(void)
 {
     while (!serial_can_read()) {
+        __asm__ volatile("pause");
     }
-    return serial_inb(SERIAL_COM1_BASE);
+    return (char)serial_inb(SERIAL_COM1_BASE);
 }
 
 bool serial_received(void)
 {
     return serial_can_read();
 }
+
+

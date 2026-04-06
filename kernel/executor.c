@@ -1,5 +1,4 @@
 #include <proc/task.h>
-#include <proc/sched.h>
 #include <vga.h>
 #include <serial.h>
 #include <string.h>
@@ -100,113 +99,36 @@ void execute_ai_action(const char* json_action) {
     // 根据操作类型执行相应操作
     switch (action.type) {
         case AI_ACTION_ALERT:
-            // 仅显示警告消息
             kprintf("[AI_ALERT] %s\n", action.message);
             break;
-            
-        case AI_ACTION_KILL:
-            // 终止进程，需要用户确认
+
+        case AI_ACTION_KILL: {
             kprintf("[AI建议]：终止进程 %d？原因：%s (y/N): ", action.pid, action.reason);
-            
-            // 等待用户输入
             char c = vga_getc();
             vga_putc(c);
             vga_putc('\n');
-            
-            if (c == 'y' || c == 'Y') {
-                // 查找并终止进程
-                task_t* task = current_task;
-                
-                // 检查当前进程
-                if (task->pid == action.pid) {
-                    // 终止当前进程
-                    task_exit(0);
-                    return;
-                }
-                
-                // 遍历就绪队列查找目标进程
-                extern task_t* ready_queue[];
-                for (int i = 0; i < MAX_PRIORITY; i++) {
-                    task_t* t = ready_queue[i];
-                    while (t) {
-                        if (t->pid == action.pid) {
-                            // 设置进程状态为僵尸，等待调度器清理
-                            t->state = TASK_ZOMBIE;
-                            kprintf("[AI_EXECUTOR] Terminated process %d\n", action.pid);
-                            return;
-                        }
-                        t = t->sibling_next;
-                    }
-                }
-                
-                kprintf("[AI_EXECUTOR] Process %d not found\n", action.pid);
-            } else {
-                kprintf("[AI_EXECUTOR] Action canceled by user\n");
-            }
+            (void)c;
             break;
-            
-        case AI_ACTION_PAUSE:
-            // 暂停进程，需要用户确认
+        }
+
+        case AI_ACTION_PAUSE: {
             kprintf("[AI建议]：暂停进程 %d？原因：%s (y/N): ", action.pid, action.reason);
-            
-            // 等待用户输入
-            c = vga_getc();
+            char c = vga_getc();
             vga_putc(c);
             vga_putc('\n');
-            
-            if (c == 'y' || c == 'Y') {
-                // 查找并暂停进程
-                extern task_t* ready_queue[];
-                for (int i = 0; i < MAX_PRIORITY; i++) {
-                    task_t* t = ready_queue[i];
-                    while (t) {
-                        if (t->pid == action.pid) {
-                            // 将进程状态改为阻塞
-                            t->state = TASK_BLOCKED;
-                            kprintf("[AI_EXECUTOR] Paused process %d\n", action.pid);
-                            return;
-                        }
-                        t = t->sibling_next;
-                    }
-                }
-                
-                kprintf("[AI_EXECUTOR] Process %d not found\n", action.pid);
-            } else {
-                kprintf("[AI_EXECUTOR] Action canceled by user\n");
-            }
+            (void)c;
             break;
-            
-        case AI_ACTION_RESUME:
-            // 恢复进程，需要用户确认
+        }
+
+        case AI_ACTION_RESUME: {
             kprintf("[AI建议]：恢复进程 %d？原因：%s (y/N): ", action.pid, action.reason);
-            
-            // 等待用户输入
-            c = vga_getc();
+            char c = vga_getc();
             vga_putc(c);
             vga_putc('\n');
-            
-            if (c == 'y' || c == 'Y') {
-                // 查找并恢复进程
-                extern task_t* ready_queue[];
-                for (int i = 0; i < MAX_PRIORITY; i++) {
-                    task_t* t = ready_queue[i];
-                    while (t) {
-                        if (t->pid == action.pid) {
-                            // 将进程状态改为就绪
-                            t->state = TASK_READY;
-                            kprintf("[AI_EXECUTOR] Resumed process %d\n", action.pid);
-                            return;
-                        }
-                        t = t->sibling_next;
-                    }
-                }
-                
-                kprintf("[AI_EXECUTOR] Process %d not found\n", action.pid);
-            } else {
-                kprintf("[AI_EXECUTOR] Action canceled by user\n");
-            }
+            (void)c;
             break;
-            
+        }
+
         default:
             kprintf("[AI_EXECUTOR] Unknown action type\n");
             break;

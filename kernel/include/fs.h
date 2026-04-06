@@ -1,3 +1,5 @@
+typedef long ssize_t;
+typedef long off_t;
 #ifndef FS_H
 #define FS_H
 

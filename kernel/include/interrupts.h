@@ -8,11 +8,9 @@
 typedef struct {
     uint16_t offset_low;
     uint16_t selector;
-    uint8_t ist;
-    uint8_t type_attr;
-    uint16_t offset_mid;
-    uint32_t offset_high;
-    uint32_t zero;
+    uint8_t  zero;
+    uint8_t  type_attr;
+    uint16_t offset_high;
 } __attribute__((packed)) idt_entry_t;
 
 typedef struct {
@@ -41,5 +39,7 @@ void irq_install(void);
 
 void keyboard_handler(void);
 void keyboard_handler_wrapper(void);
+
+void register_interrupt_handler(uint8_t num, void* handler);
 
 #endif

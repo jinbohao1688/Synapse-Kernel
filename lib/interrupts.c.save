@@ -3,13 +3,15 @@
 #include <vga.h>
 #include <common.h>
 #include <serial.h>
-
 static void default_handler(void)
 {
-    /* 发送 EOI 给 PIC，让中断继续正常工作，不死循环 */
-    __asm__ volatile("outb %0, %1" : : "a"((uint8_t)0x20), "Nd"((uint16_t)0x20));
+    uint32_t cr2;
+    __asm__ volatile("mov %%cr2, %0" : "=r"(cr2));
+    serial_write_string("[IDT] default_handler hit! CR2=");
+    serial_write_hex(cr2);
+    serial_write_string("\n");
+    while (1) {}
 }
-
 static idt_entry_t idt[IDT_ENTRIES];
 static idt_ptr_t idt_ptr;
 
@@ -22,7 +24,11 @@ void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags)
     idt[num].offset_high = (base >> 16) & 0xFFFF;
 }
 
-
+static void default_handler(void)
+{
+    serial_write_string("[IDT] default_handler hit!\n");
+    while (1) {}
+}
 
 void register_interrupt_handler(uint8_t num, void* handler) {
     idt_set_gate(num, (uint64_t)(uint32_t)handler, 0x08, 0x8E);

@@ -1,3 +1,4 @@
+#include <serial.h>
 #include <fs.h>
 #include <proc/task.h>
 #include <string.h>
@@ -312,7 +313,7 @@ static int proc_read_pid_fd(inode_t* inode, void* buf, size_t count, uint32_t of
 
 // 初始化/proc文件系统
 void init_procfs(void) {
-    kprintf("[PROCFS] Proc filesystem initialized\n");
+    serial_write_string("[LOG]\n");
     
     // 简化实现：在实际文件系统中创建/proc目录和相关文件
     // 这里只是注册procfs的读取函数，具体的文件系统集成需要在文件系统模块中完成

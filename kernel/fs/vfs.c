@@ -1,3 +1,4 @@
+#include <serial.h>
 #include <fs/vfs.h>
 #include <mm/kheap.h>
 #include <string.h>
@@ -11,7 +12,7 @@ static inode_t* root_inode = NULL;
 void vfs_init(void) {
     mount_points = NULL;
     root_inode = NULL;
-    kprintf("[VFS] Virtual File System initialized\n");
+    serial_write_string("[FS] ok\n");
 }
 
 // 挂载文件系统
@@ -43,7 +44,7 @@ int vfs_mount(const char* device, const char* mount_point, file_operations_t* f_
         root_inode = root_inode;
     }
     
-    kprintf("[VFS] Mounted filesystem at %s\n", mount_point);
+    serial_write_string("[FS] ok\n");
     return 0;
 }
 
@@ -66,7 +67,7 @@ int vfs_umount(const char* mount_point) {
             kfree(current->mount_point);
             kfree(current);
             
-            kprintf("[VFS] Unmounted filesystem from %s\n", mount_point);
+            serial_write_string("[FS] ok\n");
             return 0;
         }
         

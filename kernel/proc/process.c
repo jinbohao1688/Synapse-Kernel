@@ -42,7 +42,7 @@ void init_process_management(void) {
     // 创建内核进程
     pcb_t* kernel_process = (pcb_t*)kmalloc(sizeof(pcb_t));
     if (!kernel_process) {
-        kprintf("[ERROR] Failed to allocate kernel process!");
+        serial_write_string("[LOG]\n");
         return;
     }
     
@@ -57,7 +57,7 @@ void init_process_management(void) {
     current_process = kernel_process;
     add_process_to_list(kernel_process);
     
-    kprintf("[PROCESS] Process management initialized with kernel process (PID: %d)\n", kernel_process->pid);
+    serial_write_string("[LOG]\n");
 }
 
 // 创建新进程
@@ -65,7 +65,7 @@ pcb_t* create_process(const char* name, void (*entry_point)(void), uint32_t prio
     // 分配PCB
     pcb_t* process = (pcb_t*)kmalloc(sizeof(pcb_t));
     if (!process) {
-        kprintf("[ERROR] Failed to allocate PCB!");
+        serial_write_string("[LOG]\n");
         return NULL;
     }
     
@@ -80,7 +80,7 @@ pcb_t* create_process(const char* name, void (*entry_point)(void), uint32_t prio
     process->page_dir = (page_directory_t*)kmalloc(sizeof(page_directory_t));
     if (!process->page_dir) {
         kfree(process);
-        kprintf("[ERROR] Failed to allocate page directory!");
+        serial_write_string("[LOG]\n");
         return NULL;
     }
     
@@ -92,7 +92,7 @@ pcb_t* create_process(const char* name, void (*entry_point)(void), uint32_t prio
     if (!stack) {
         kfree(process->page_dir);
         kfree(process);
-        kprintf("[ERROR] Failed to allocate stack!");
+        serial_write_string("[LOG]\n");
         return NULL;
     }
     
@@ -103,84 +103,14 @@ pcb_t* create_process(const char* name, void (*entry_point)(void), uint32_t prio
     // 将进程添加到链表
     add_process_to_list(process);
     
-    kprintf("[PROCESS] Created process %s (PID: %d)\n", name, process->pid);
+    serial_write_string("[LOG]\n");
     return process;
-}
-
-// 切换进程（汇编实现）
-void switch_process(pcb_t* next_process) {
-    if (!next_process || current_process == next_process) {
-        return;
-    }
-    
-    // 保存当前进程状态
-    asm volatile("pusha");
-    asm volatile("mov %%esp, %0" : "=r"(current_process->esp));
-    asm volatile("mov %%ebp, %0" : "=r"(current_process->ebp));
-    
-    // 更新当前进程
-    current_process = next_process;
-    
-    // 加载下一个进程状态
-    asm volatile("mov %0, %%esp" : : "r"(next_process->esp));
-    asm volatile("mov %0, %%ebp" : : "r"(next_process->ebp));
-    
-    // 切换页目录
-    uint32_t page_dir_phys = ((uint32_t)next_process->page_dir) & 0xFFFFF000;
-    asm volatile("mov %0, %%cr3" : : "r"(page_dir_phys));
-    
-    asm volatile("popa");
-}
-
-// 进程调度器
-void schedule(void) {
-    if (!process_list) {
-        return;
-    }
-    
-    pcb_t* next_process = NULL;
-    
-    switch (current_scheduler) {
-        case SCHEDULER_ROUND_ROBIN:
-            // 简单的轮转调度
-            next_process = current_process->next;
-            while (next_process->state != PROCESS_READY && next_process != current_process) {
-                next_process = next_process->next;
-            }
-            break;
-            
-        case SCHEDULER_PRIORITY:
-            // 优先级调度
-            next_process = process_list;
-            pcb_t* highest_priority = NULL;
-            do {
-                if (next_process->state == PROCESS_READY && 
-                    (!highest_priority || next_process->priority < highest_priority->priority)) {
-                    highest_priority = next_process;
-                }
-                next_process = next_process->next;
-            } while (next_process != process_list);
-            next_process = highest_priority;
-            break;
-            
-        case SCHEDULER_FCFS:
-            // 先来先服务
-            next_process = current_process->next;
-            while (next_process->state != PROCESS_READY && next_process != current_process) {
-                next_process = next_process->next;
-            }
-            break;
-    }
-    
-    if (next_process && next_process->state == PROCESS_READY && next_process != current_process) {
-        switch_process(next_process);
-    }
 }
 
 // 终止进程
 void terminate_process(uint32_t pid) {
     if (pid == 0) {
-        kprintf("[ERROR] Cannot terminate kernel process!");
+        serial_write_string("[LOG]\n");
         return;
     }
     
@@ -188,7 +118,7 @@ void terminate_process(uint32_t pid) {
     do {
         if (process->pid == pid) {
             process->state = PROCESS_TERMINATED;
-            kprintf("[PROCESS] Terminated process %s (PID: %d)\n", process->name, pid);
+            serial_write_string("[LOG]\n");
             
             // 释放资源
             if (process->page_dir && process->page_dir != get_kernel_page_dir()) {
@@ -205,7 +135,7 @@ void terminate_process(uint32_t pid) {
         process = process->next;
     } while (process != process_list);
     
-    kprintf("[ERROR] Process with PID %d not found!");
+    serial_write_string("[LOG]\n");
 }
 
 // 获取当前进程
@@ -217,18 +147,18 @@ pcb_t* get_current_process(void) {
 void set_scheduler_type(scheduler_type_t type) {
     current_scheduler = type;
     const char* scheduler_names[] = {"Round Robin", "Priority", "FCFS"};
-    kprintf("[PROCESS] Set scheduler to %s\n", scheduler_names[type]);
+    serial_write_string("[LOG]\n");
 }
 
 // 信号处理
 void send_signal(uint32_t pid, int signal) {
     // 简化实现：仅记录信号
-    kprintf("[SIGNAL] Sent signal %d to process %d\n", signal, pid);
+    serial_write_string("[LOG]\n");
 }
 
 void handle_signal(int signal) {
     // 简化实现：仅打印信号
-    kprintf("[SIGNAL] Handling signal %d\n", signal);
+    serial_write_string("[LOG]\n");
 }
 
 // 管道实现（简化）
@@ -241,7 +171,7 @@ int create_pipe(int pipefd[2]) {
 
 int pipe_write(int fd, const void* buf, size_t count) {
     // 简化实现：直接写入控制台
-    kprintf("[PIPE] Write: %s\n", (const char*)buf);
+    serial_write_string("[LOG]\n");
     return count;
 }
 
@@ -278,7 +208,7 @@ void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset)
         map_page((void*)virt_addr, phys_addr, page_flags);
     }
     
-    kprintf("[MMAP] Mapped %zu bytes at 0x%x\n", length, virtual_page);
+    serial_write_string("[LOG]\n");
     return (void*)virtual_page;
 }
 
@@ -295,6 +225,6 @@ int munmap(void* addr, size_t length) {
         unmap_page((void*)(virt_addr + i * PAGE_SIZE));
     }
     
-    kprintf("[MMAP] Unmapped %zu bytes at 0x%x\n", length, virt_addr);
+    serial_write_string("[LOG]\n");
     return 0;
 }

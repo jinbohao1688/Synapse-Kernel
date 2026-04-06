@@ -55,6 +55,7 @@ typedef struct task {
 
 // 全局变量声明
 extern task_t* current_task;
+extern task_t* ready_queue[MAX_PRIORITY];
 
 // 进程管理函数声明
 void sched_init(void);

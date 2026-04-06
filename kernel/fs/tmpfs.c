@@ -216,10 +216,11 @@ void init_filesystem(void) {
         file_descriptors[i].flags = 0;
     }
     
-    // 挂载根文件系统
+    serial_write_string("[FS] before mount\n");
     mount(NULL, "/", FS_TYPE_TMPFS, 0);
+    serial_write_string("[FS] after mount\n");
     
-    kprintf("[FS] Filesystem initialized\n");
+    serial_write_string("[FS] Filesystem initialized\n");
 }
 
 // 挂载文件系统
@@ -242,7 +243,15 @@ int mount(const char* source, const char* target, uint8_t fs_type, uint32_t flag
                 }
                 
                 // 创建根目录inode
-                fs_data->root_inode = tmpfs_create("/", FT_DIRECTORY, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
+                // 直接分配根 inode，不调用 tmpfs_create（避免鸡蛋问题）
+                inode_t* root = (inode_t*)kmalloc(sizeof(inode_t));
+                if (!root) { return -1; }
+                for (int _i = 0; _i < (int)sizeof(inode_t); _i++) ((char*)root)[_i] = 0;
+                root->type = FT_DIRECTORY;
+                root->permissions = 0755;
+                root->children = (dir_entry_t*)kmalloc(4 * sizeof(dir_entry_t));
+                root->child_count = 0;
+                fs_data->root_inode = root;
                 mount_point->fs_data = fs_data;
                 break;
             }
@@ -251,7 +260,7 @@ int mount(const char* source, const char* target, uint8_t fs_type, uint32_t flag
             return -1;
     }
     
-    kprintf("[FS] Mounted filesystem type %d at %s\n", fs_type, target);
+    serial_write_string("[FS] Mounted\n");
     return 0;
 }
 
@@ -393,7 +402,7 @@ int lseek(int fd, off_t offset, int whence) {
 // 列出挂载点
 void list_mount_points(void) {
     for (int i = 0; i < mount_point_count; i++) {
-        kprintf("%s: type %d\n", mount_points[i].mount_point, mount_points[i].fs_type);
+        serial_write_string("[FS] ok\n");
     }
 }
 

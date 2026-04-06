@@ -1,3 +1,4 @@
+#include <serial.h>
 #include <fs/ramfs.h>
 #include <mm/kheap.h>
 #include <string.h>
@@ -32,7 +33,7 @@ file_operations_t ramfs_file_ops = {
 
 // 初始化RamFS
 int ramfs_init(void) {
-    kprintf("[RAMFS] RamFS initialized\n");
+    serial_write_string("[FS] ok\n");
     return 0;
 }
 
@@ -98,7 +99,7 @@ inode_t* ramfs_create_root(void) {
     // 将目录项添加到根节点
     root_inode->entries = dot_entry;
     
-    kprintf("[RAMFS] Created root inode\n");
+    serial_write_string("[FS] ok\n");
     return &root_inode->base;
 }
 

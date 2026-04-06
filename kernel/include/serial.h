@@ -15,6 +15,7 @@
 void serial_init(void);
 void serial_write_char(char c);
 void serial_write_string(const char* str);
+void serial_write_hex(uint32_t val);
 bool serial_can_read(void);
 char serial_read_char(void);
 bool serial_received(void);

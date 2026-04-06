@@ -1,4 +1,5 @@
 #include <vga.h>
+#include <serial.h>
 #include <string.h>
 
 static uint16_t* vga_buffer = (uint16_t*)VGA_MEMORY;
@@ -92,6 +93,7 @@ void vga_scroll(void)
 void kprint(const char* str)
 {
     vga_puts(str);
+    serial_write_string(str);
 }
 
 void kprint_hex(uint32_t value)
@@ -128,4 +130,10 @@ void kprint_dec(uint32_t value)
     }
 
     kprint(&buffer[i]);
+}
+
+/* Blocking character read from keyboard — used by executor and shell */
+char vga_getc(void) {
+    /* polling stub — real impl needs keyboard buffer */
+    return 0;
 }

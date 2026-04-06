@@ -12,25 +12,27 @@ AS := $(CROSS_COMPILE)as
 NASM := nasm
 
 # Compiler flags
-CFLAGS := -ffreestanding -nostdlib -O2 -Wall -Wextra -std=gnu99 -Ikernel/include
+CFLAGS := -ffreestanding -nostdlib -O0 -Wall -Wextra -std=gnu99 -Ikernel/include
 LDFLAGS := -T linker.ld -nostdlib
 NASMFLAGS := -f elf32
 
 # Kernel source files
 BOOT_SOURCES := kernel/boot/boot.asm
-KERNEL_SOURCES := kernel/main.c \
-                  kernel/mm/kheap.c \
-                  kernel/mm/paging.c \
-                  kernel/proc/process.c \
-                  kernel/proc/sched.c \
-                  kernel/proc/switch.asm \
-                  kernel/fs/vfs.c \
-                  kernel/fs/ramfs.c \
-                  kernel/fs/tmpfs.c \
-                  kernel/loader/elf.c \
-                  kernel/syscall.c \
-                  kernel/table.S \
-                  kernel/executor.c
+ASM_SOURCES := kernel/proc/switch.asm kernel/table.asm kernel/syscall_stub.asm
+C_SOURCES := kernel/main.c \
+            kernel/mm/kheap.c \
+            kernel/mm/paging.c \
+            kernel/proc/process.c \
+            kernel/proc/sched.c \
+            kernel/proc/procfs.c \
+            kernel/fs/vfs.c \
+            kernel/fs/ramfs.c \
+            kernel/fs/tmpfs.c \
+            kernel/loader/elf.c \
+            kernel/syscall.c \
+            kernel/executor.c
+
+KERNEL_SOURCES := $(C_SOURCES) $(ASM_SOURCES)
 
 # Library source files
 LIB_SOURCES := kernel/../lib/string.c \
@@ -44,7 +46,9 @@ LIB_SOURCES := kernel/../lib/string.c \
 
 # Object files
 BOOT_OBJECTS := $(BOOT_SOURCES:.asm=.o)
-KERNEL_OBJECTS := $(filter-out %.asm, $(KERNEL_SOURCES:.c=.o)) $(filter %.asm, $(KERNEL_SOURCES:.asm=.o))
+ASM_OBJECTS := $(ASM_SOURCES:.asm=.o)
+C_OBJECTS := $(C_SOURCES:.c=.o)
+KERNEL_OBJECTS := $(C_OBJECTS) $(ASM_OBJECTS)
 LIB_OBJECTS := $(LIB_SOURCES:.c=.o)
 
 OBJECTS := $(BOOT_OBJECTS) $(KERNEL_OBJECTS) $(LIB_OBJECTS)
@@ -56,7 +60,6 @@ TARGET := synapse.bin
 LINKER_SCRIPT := linker.ld
 
 # Include linker script
-include linker.ld
 
 # Build kernel
 kernel: $(OBJECTS) $(LINKER_SCRIPT)
@@ -68,6 +71,20 @@ kernel: $(OBJECTS) $(LINKER_SCRIPT)
 %.o: %.asm
 	@echo "Assembling $<..."
 	$(NASM) $(NASMFLAGS) $< -o $@
+
+# Special rules for nasm assembly files
+kernel/proc/switch.o: kernel/proc/switch.asm
+	@echo "Assembling $<..."
+	$(NASM) $(NASMFLAGS) $< -o $@
+
+kernel/table.o: kernel/table.asm
+	@echo "Assembling $<..."
+	$(NASM) $(NASMFLAGS) $< -o $@
+
+# Assemble .S (preprocessed asm) files
+%.o: %.S
+	@echo "Assembling $<..."
+	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
 # Compile C files
 %.o: %.c
@@ -90,17 +107,17 @@ clean:
 # Run kernel in QEMU
 run: $(TARGET)
 	@echo "Running kernel in QEMU..."
-	@qemu-system-i386 -kernel $(TARGET) -m 128M -monitor stdio -serial COM1
+	@qemu-system-i386 -nographic -kernel $(TARGET) -m 128M -monitor none -serial stdio
 
 # Run kernel in QEMU with debug output
 debug: $(TARGET)
 	@echo "Running kernel in QEMU with debug output..."
-	@qemu-system-i386 -kernel $(TARGET) -m 128M -monitor stdio -serial COM1 -d int -no-reboot
+	@qemu-system-i386 -nographic -kernel $(TARGET) -m 128M -monitor none -serial stdio -d int -no-reboot
 
 # Run kernel in QEMU with GDB support
 gdb: $(TARGET)
 	@echo "Running kernel in QEMU with GDB support..."
-	@qemu-system-i386 -kernel $(TARGET) -m 128M -monitor stdio -serial COM1 -s -S
+	@qemu-system-i386 -nographic -kernel $(TARGET) -m 128M -monitor none -serial stdio -s -S
 
 # Help target
 help: 

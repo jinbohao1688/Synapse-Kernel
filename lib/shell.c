@@ -1,4 +1,5 @@
 #include <shell.h>
+#include <loader/elf.h>
 #include <keyboard.h>
 #include <vga.h>
 #include <string.h>
@@ -6,6 +7,26 @@
 #include <serial.h>
 #include <proc/task.h>
 #include <mm/paging.h>
+
+/* icm_execve is provided by the syscall runtime (syscall_fix or user-lib) */
+extern int icm_execve(const char *path, char **argv, char **envp);
+/* Stub — kernel-space execve always fails; real exec needs user-space */
+int icm_execve(const char *path, char **argv, char **envp) {
+    (void)argv; (void)envp;
+    uint32_t entry = 0;
+    serial_write_string("[EXEC] elf_load: ");
+    serial_write_string(path);
+    serial_write_string("\n");
+    if (elf_load(path, &entry) < 0) {
+        serial_write_string("[EXEC] elf_load failed\n");
+        return -1;
+    }
+    serial_write_string("[EXEC] jumping to entry\n");
+    /* 直接调用入口点（内核态，无用户态隔离） */
+    typedef void (*entry_fn)(void);
+    ((entry_fn)entry)();
+    return 0;
+}
 
 static char shell_buffer[SHELL_BUFFER_SIZE];
 static int shell_buffer_pos = 0;
@@ -24,15 +45,17 @@ static shell_command_t shell_commands[] = {
 
 void shell_init(void)
 {
+    serial_write_string("[SH] shell_init\n");
     shell_buffer_pos = 0;
+    serial_write_string("[SH] before kprint\n");
     kprint("\nShell initialized. Type 'help' for available commands.\n\n");
+    serial_write_string("[SH] shell_init done\n");
 }
 
 void shell_prompt(void)
 {
-    vga_set_color(VGA_COLOR_LIGHT_GREEN, VGA_COLOR_BLACK);
-    kprint("synapse> ");
-    vga_set_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);
+    serial_write_string("[SH] prompt\n");
+    serial_write_string("synapse> ");
 }
 
 void shell_parse_command(char* input, int* argc, char** argv)
@@ -165,40 +188,17 @@ void shell_cmd_ps(int argc, char** argv)
 {
     UNUSED(argc);
     UNUSED(argv);
-    
-    kprint("\nPID\tSTATE\tNAME\tPRIORITY\tTIME\t\n");
-    
-    // 遍历所有进程
-    struct task* task = task_list;
-    if (task) {
-        do {
-            // 获取进程状态字符串
-            const char* state_str;
-            switch (task->state) {
-                case TASK_READY: state_str = "READY";
-                    break;
-                case TASK_RUNNING: state_str = "RUNNING";
-                    break;
-                case TASK_BLOCKED: state_str = "BLOCKED";
-                    break;
-                case TASK_ZOMBIE: state_str = "ZOMBIE";
-                    break;
-                case TASK_EXITED: state_str = "EXITED";
-                    break;
-                default: state_str = "UNKNOWN";
-                    break;
-            }
-            
-            // 输出进程信息
-            char buf[128];
-            snprintf(buf, sizeof(buf), "%d\t%s\tTask%d\t%d\t%d\t\n", 
-                      task->pid, state_str, task->pid, task->priority, task->total_time);
-            kprint(buf);
-            
-            task = task->next;
-        } while (task != task_list);
+
+    kprint("\nPID  STATE  NAME       PRIORITY\n");
+
+    task_t* t = current_task;
+    if (t) {
+        const char* state_str = "RUNNING";
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%d    %s  %s  %d\n",
+                 t->pid, state_str, t->name, t->priority);
+        kprint(buf);
     }
-    
     kprint("\n");
 }
 
@@ -236,43 +236,24 @@ void shell_cmd_top(int argc, char** argv)
 {
     UNUSED(argc);
     UNUSED(argv);
-    
+
     kprint("\nRunning Processes:\n");
-    kprint("PID\tSTATE\tNAME\tPRIORITY\tTIME\t\n");
-    
-    // 遍历所有进程，只显示运行中的进程
-    struct task* task = task_list;
-    if (task) {
-        do {
-            // 只显示运行中和就绪状态的进程
-            if (task->state == TASK_RUNNING || task->state == TASK_READY) {
-                // 获取进程状态字符串
-                const char* state_str;
-                switch (task->state) {
-                    case TASK_READY: state_str = "READY";
-                        break;
-                    case TASK_RUNNING: state_str = "RUNNING";
-                        break;
-                    default: state_str = "UNKNOWN";
-                        break;
-                }
-                
-                // 输出进程信息
-                char buf[128];
-                snprintf(buf, sizeof(buf), "%d\t%s\tTask%d\t%d\t%d\t\n", 
-                          task->pid, state_str, task->pid, task->priority, task->total_time);
-                kprint(buf);
-            }
-            
-            task = task->next;
-        } while (task != task_list);
+    kprint("PID  STATE  NAME       PRIORITY  RUNTIME\n");
+
+    task_t* t = current_task;
+    if (t) {
+        const char* state_str = "RUNNING";
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%d    %s  %s  %d  %d\n",
+                 t->pid, state_str, t->name, t->priority, t->total_runtime);
+        kprint(buf);
     }
-    
     kprint("\n");
 }
 
 void shell_run(void)
 {
+    serial_write_string("[SH] shell_run entered\n");
     char* argv[SHELL_MAX_ARGS];
     int argc;
     
@@ -282,31 +263,39 @@ void shell_run(void)
         shell_buffer_pos = 0;
         shell_buffer[0] = '\0';
         
+        /* 刷清串口接收缓冲区残留 */
+        {
+            extern bool serial_can_read(void);
+            extern char serial_read_char(void);
+            while (serial_can_read()) serial_read_char();
+        }
         while (1) {
-            key_event_t event;
-            
-            if (keyboard_read(&event) && event.pressed) {
-                if (event.ascii == '\n') {
-                    kprint("\n");
-                    break;
-                } else if (event.ascii == '\b') {
-                    if (shell_buffer_pos > 0) {
-                        shell_buffer_pos--;
-                        shell_buffer[shell_buffer_pos] = '\0';
-                        vga_putc('\b');
-                    }
-                } else if (event.ascii >= 32 && event.ascii <= 126) {
-                    if (shell_buffer_pos < SHELL_BUFFER_SIZE - 1) {
-                        shell_buffer[shell_buffer_pos] = event.ascii;
-                        shell_buffer_pos++;
-                        shell_buffer[shell_buffer_pos] = '\0';
-                        vga_putc(event.ascii);
-                    }
+            serial_write_string("[SH] waiting\n");
+            char c = serial_read_char();
+            serial_write_string("[SH] got=");
+            serial_write_hex((uint32_t)(uint8_t)c);
+            serial_write_string("\n");
+            if (c == '\r' || c == '\n') {
+                serial_write_string("\r\n");
+                break;
+            } else if (c == '\b' || c == 127) {
+                if (shell_buffer_pos > 0) {
+                    shell_buffer_pos--;
+                    shell_buffer[shell_buffer_pos] = '\0';
+                    serial_write_string("\b \b");
+                }
+            } else if (c >= 32 && c <= 126) {
+                if (shell_buffer_pos < SHELL_BUFFER_SIZE - 1) {
+                    shell_buffer[shell_buffer_pos] = c;
+                    shell_buffer_pos++;
+                    shell_buffer[shell_buffer_pos] = '\0';
+                    serial_write_char(c);
                 }
             }
         }
         
         if (shell_buffer_pos == 0) {
+            serial_write_string("[SH] empty line, continue\n");
             continue;
         }
         
@@ -330,7 +319,7 @@ void shell_run(void)
                 kprint("\n");
                 
                 // 使用sys_execve执行文件
-                int ret = syscall(SYS_execve, argv[0], argv, NULL);
+                int ret = icm_execve(argv[0], argv, NULL);
                 if (ret < 0) {
                     kprint("Failed to execute: ");
                     kprint(argv[0]);

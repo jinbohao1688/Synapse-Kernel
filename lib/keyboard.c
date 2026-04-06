@@ -1,4 +1,5 @@
 #include <keyboard.h>
+#include <serial.h>
 #include <common.h>
 
 static const char scancode_to_ascii_table[128] = {
@@ -37,15 +38,15 @@ char keyboard_get_scancode(void)
 {
     uint8_t status;
     uint8_t scancode;
-    
+    __asm__ volatile("cli");
     do {
         __asm__ volatile("inb $0x64, %0" : "=a"(status));
     } while (!(status & KEYBOARD_STATUS_OUTPUT_FULL));
-    
     __asm__ volatile("inb $0x60, %0" : "=a"(scancode));
-    
+    __asm__ volatile("sti");
     return scancode;
 }
+    
 
 char scancode_to_ascii(char scancode)
 {
@@ -90,11 +91,25 @@ char scancode_to_ascii(char scancode)
 
 bool keyboard_read(key_event_t* event)
 {
+    /* 优先从串口读（-nographic 模式） */
+    if (serial_can_read()) {
+        char c = serial_read_char();
+        if (c == '\r') c = '\n';
+        event->scancode = 0;
+    serial_write_char(c);  /* 回显 */
+        event->pressed  = true;
+        event->ascii    = c;
+        return true;
+    }
+    /* 再检查 PS/2 键盘（有数据才读，避免死等） */
+    uint8_t status;
+    __asm__ volatile("inb $0x64, %0" : "=a"(status));
+    if (!(status & 0x01)) {
+        return false;
+    }
     char scancode = keyboard_get_scancode();
-    
     event->scancode = scancode;
-    event->pressed = !(scancode & 0x80);
-    event->ascii = scancode_to_ascii(scancode);
-    
+    event->pressed  = !(scancode & 0x80);
+    event->ascii    = scancode_to_ascii(scancode);
     return event->pressed;
 }

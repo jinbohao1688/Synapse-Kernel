@@ -1,3 +1,5 @@
+typedef long ssize_t;
+typedef long off_t;
 #ifndef PROC_H
 #define PROC_H
 

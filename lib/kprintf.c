@@ -1,7 +1,13 @@
 #include <stdarg.h>
 #include <string.h>
 #include <vga.h>
-#include <fs.h>
+
+#ifndef O_WRONLY
+#define O_WRONLY 1
+#endif
+#ifndef O_CREAT
+#define O_CREAT 0x40
+#endif
 
 // 简单的格式化输出缓冲区大小
 #define PRINTF_BUFFER_SIZE 1024
@@ -103,12 +109,6 @@ int kprintf(const char* format, ...)
     // 输出到VGA控制台
     kprint(buffer);
     
-    // 尝试写入到/dev/log文件（如果存在）
-    int log_fd = open("/dev/log", O_WRONLY | O_CREAT, 0666);
-    if (log_fd >= 0) {
-        write(log_fd, buffer, strlen(buffer));
-        close(log_fd);
-    }
     
     return printed;
 }

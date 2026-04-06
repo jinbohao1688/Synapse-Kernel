@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
+typedef long ssize_t;
+typedef long off_t;
+
 // 文件类型枚举
 typedef enum {
     FILE_TYPE_REGULAR,

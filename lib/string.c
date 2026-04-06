@@ -101,13 +101,13 @@ char* strtok(char* str, const char* delim)
     if (str != NULL) {
         strtok_saveptr = str;
     }
-    
+
     if (strtok_saveptr == NULL) {
         return NULL;
     }
-    
+
     char* token_start = strtok_saveptr;
-    
+
     while (*strtok_saveptr != '\0') {
         const char* d = delim;
         while (*d != '\0') {
@@ -120,12 +120,23 @@ char* strtok(char* str, const char* delim)
         }
         strtok_saveptr++;
     }
-    
+
     if (token_start == strtok_saveptr) {
         return NULL;
     }
-    
+
     char* result = token_start;
     strtok_saveptr = NULL;
     return result;
+}
+
+int atoi(const char* s) {
+    int neg = 0;
+    int v = 0;
+    if (*s == '-') { neg = 1; s++; }
+    while (*s >= '0' && *s <= '9') {
+        v = v * 10 + (*s - '0');
+        s++;
+    }
+    return neg ? -v : v;
 }
