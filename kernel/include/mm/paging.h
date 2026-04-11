@@ -4,59 +4,69 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// 内核虚拟地址空间布局
-#define KERNEL_HEAP_START 0xC0000000
+// Page size: 4KB
+#define PAGE_SIZE       4096
+#define PAGE_SHIFT      12
 
-// 页大小：4KB
-#define PAGE_SIZE 4096
+// Number of entries per table
+#define PML4_ENTRIES    512
+#define PDPT_ENTRIES    512
+#define PD_ENTRIES      512
+#define PT_ENTRIES      512
 
-// 页目录和页表项的数量
-#define PAGE_DIR_ENTRIES 1024
-#define PAGE_TABLE_ENTRIES 1024
+// x86-64 PTE/PDE/PDPTE/PML4E flags
+#define PAGE_PRESENT         0x001   // Present
+#define PAGE_WRITABLE        0x002   // Read/Write
+#define PAGE_USER            0x004   // User/Supervisor
+#define PAGE_WRITE_THROUGH   0x008   // Write-Through
+#define PAGE_CACHE_DISABLED  0x010   // Cache Disable
+#define PAGE_ACCESSED        0x020   // Accessed
+#define PAGE_DIRTY           0x040   // Dirty
+#define PAGE_PAT             0x080   // PAT (for large pages)
+#define PAGE_GLOBAL          0x100   // Global
+#define PAGE_NX              0x8000000000000000ULL // No-Execute (inverted, OR with flags)
 
-// 页目录项（PDE）和页表项（PTE）的标志位
-#define PAGE_PRESENT 0x1      // 页存在于物理内存中
-#define PAGE_WRITABLE 0x2     // 页可写
-#define PAGE_USER 0x4         // 用户级页
-#define PAGE_WRITE_THROUGH 0x8 // 写透缓存
-#define PAGE_CACHE_DISABLED 0x10 // 禁用缓存
-#define PAGE_ACCESSED 0x20    // 页被访问过
-#define PAGE_DIRTY 0x40       // 页被修改过
-#define PAGE_PAT 0x80         // 页属性表
-#define PAGE_GLOBAL 0x100     // 全局页（CPU 不刷新 TLB）
+// Large page flags
+#define PAGE_PS              0x080   // Page Size (=1 for PDE/PDPTE that map 2MB/1GB)
 
-// 页目录项和页表项的结构（32位）
-typedef uint32_t page_entry_t;
+// x86-64 address layout constants
+#define KERNEL_VIRT_BASE     0xFFFF800000000000ULL
+#define KERNEL_HEAP_START    0xFFFF800100000000ULL
+#define USER_VIRT_START      0x0000000000400000ULL
 
-// 页目录和页表的结构
-typedef page_entry_t page_directory_t;
-typedef page_entry_t page_table_t;
+// Page table entry (64-bit)
+typedef uint64_t page_entry_t;
+
+// Page tables — use pointer types so indexing via [] works correctly
+typedef page_entry_t* pml4_t;
+typedef page_entry_t* pdpt_t;
+typedef page_entry_t* pd_t;
+typedef page_entry_t* pt_t;
 
 // Frame allocator
-void init_frame_allocator(uint32_t mem_bytes);
-uint32_t alloc_frame(void);
-void free_frame(uint32_t frame);
+void init_frame_allocator(uint64_t mem_bytes);
+uint64_t alloc_frame(void);
+void free_frame(uint64_t frame);
 
-// 分页初始化函数
+// Paging (re-initialize after boot.asm set up initial tables)
 void init_paging(void);
 
-// 页表操作函数
-void map_page(void* virtual_addr, uint32_t physical_addr, uint32_t flags);
-void unmap_page(void* virtual_addr);
-uint32_t get_physical_addr(void* virtual_addr);
+// Page table operations
+void map_page(uint64_t virtual_addr, uint64_t physical_addr, uint64_t flags);
+void map_page_user(uint64_t virtual_addr, uint64_t physical_addr, uint64_t flags);
+void unmap_page(uint64_t virtual_addr);
+uint64_t get_physical_addr(uint64_t virtual_addr);
+void flush_tlb(uint64_t virtual_addr);
 
-// 内核堆管理函数
-void* kmalloc(size_t size);
-void kfree(void* ptr);
-void init_kheap(void);
-void get_kheap_info(size_t* total, size_t* used, size_t* free);
+// Memory info
+uint64_t get_total_memory(void);
+uint64_t get_used_memory(void);
+uint64_t get_free_memory(void);
 
-// 内存信息获取函数
-uint32_t get_total_memory(void);
-uint32_t get_used_memory(void);
-uint32_t get_free_memory(void);
+// Get kernel PML4 (returns pointer to PML4 entries)
+uint64_t* get_kernel_pml4(void);
 
-// 获取内核页目录
-page_directory_t* get_kernel_page_dir(void);
+// PML4 address (physical, set by boot.asm)
+extern uint64_t pml4_phys;
 
 #endif // PAGING_H

@@ -3,30 +3,29 @@
 
 #include <stdint.h>
 
-// 寄存器保存结构，用于上下文切换
-// 包含x86架构下所有需要保存的寄存器
+// Register save structure for x86-64 interrupt/syscall handlers
+// Layout must match switch.asm offsets for context switching
 struct regs {
-    // 通用寄存器（32位）
-    uint32_t eax;
-    uint32_t ebx;
-    uint32_t ecx;
-    uint32_t edx;
-    uint32_t esi;
-    uint32_t edi;
-    uint32_t ebp;
-    uint32_t esp;
-    
-    // 控制寄存器
-    uint32_t eip;
-    uint32_t eflags;
-    
-    // 段寄存器
-    uint32_t cs;
-    uint32_t ds;
-    uint32_t es;
-    uint32_t fs;
-    uint32_t gs;
-    uint32_t ss;
+    // Callee-saved (saved/restored by switch.asm)
+    uint64_t r15;
+    uint64_t r14;
+    uint64_t r13;
+    uint64_t r12;
+    uint64_t r11;
+    uint64_t r10;
+    uint64_t r9;
+    uint64_t r8;
+    uint64_t rbp;
+    uint64_t rdi;
+    uint64_t rsi;
+    uint64_t rdx;
+    uint64_t rax;
+    uint64_t rcx;
+    uint64_t rbx;
+    uint64_t rip;          // Instruction pointer
+    uint64_t rsp;          // Stack pointer
+    uint64_t rflags;       // RFLAGS
+    uint64_t page_dir;     // CR3 value (page directory pointer)
 };
 
 #endif // REGS_H

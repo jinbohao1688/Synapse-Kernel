@@ -13,296 +13,226 @@
 
 typedef long off_t;
 
-/* kwrite is used by sys_write_handler — stub that writes via vga_puts */
-static void kwrite(const void* buf, size_t count) {
+/* kwrite is used by sys_write_handler — writes to VGA + serial */
+static void kwrite(const void* buf, size_t count)
+{
     const char* p = (const char*)buf;
-    size_t i;
-    for (i = 0; i < count; i++) {
+    for (size_t i = 0; i < count; i++) {
         vga_putc(p[i]);
-        serial_write_char(p[i]);  /* nographic 下可见 */
+        serial_write_char(p[i]);
     }
 }
 
-// 系统调用表（外部定义，在table.S中）
+// System call table (extern defined in table.asm)
 extern syscall_handler_t syscall_table[];
 
-// 系统调用处理函数的最大数量
+// Maximum syscall count
 #define MAX_SYSCALLS 12
 
-// 系统调用入口（汇编实现，用于用户空间调用）
-int syscall(int num, ...) {
-    int ret;
-    asm volatile("int $0x80" : "=a"(ret) : "a"(num));
+// x86-64 syscall: arguments in RDI, RSI, RDX (System V ABI)
+/* Linux x86-64 syscall号 → Synapse syscall号 */
+static uint64_t linux_to_synapse(uint64_t num) {
+    switch (num) {
+        case 0:  return 4;  /* Linux read  → Synapse read  */
+        case 1:  return 3;  /* Linux write → Synapse write */
+        case 2:  return 5;  /* Linux open  → Synapse open  */
+        case 3:  return 6;  /* Linux close → Synapse close */
+        case 9:  return 7;  /* Linux mmap  → Synapse mmap  */
+        case 11: return 8;  /* Linux munmap→ Synapse munmap*/
+        case 12: return 9;  /* Linux brk   → Synapse sbrk  */
+        case 57: return 1;  /* Linux fork  → Synapse fork  */
+        case 59: return 11; /* Linux execve→ Synapse execve*/
+        case 60: return 0;  /* Linux exit  → Synapse exit  */
+        case 61: return 2;  /* Linux wait4 → Synapse wait  */
+        default: return num;
+    }
+}
+
+uint64_t syscall_dispatch(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3)
+{
+    num = linux_to_synapse(num);
+    if (num >= MAX_SYSCALLS) {
+        serial_write_string("[SYSCALL] invalid: ");
+        serial_write_hex64(num);
+        serial_write_string("\n");
+        return (uint64_t)-1;
+    }
+    syscall_handler_t handler = syscall_table[num];
+    if (!handler) return (uint64_t)-1;
+
+    // x86-64 SysV ABI: syscall arg1=RAX→saved in rdi slot, arg2=RSI→saved in rsi slot, arg3=RDX→saved in rdx slot
+    struct regs r;
+    r.rdi = arg1;
+    r.rsi = arg2;
+    r.rdx = arg3;
+    uint64_t ret = handler(&r);
     return ret;
 }
 
-// 系统调用处理函数
-void syscall_handler(struct regs* regs) {
-    // 获取系统调用号
-    uint32_t syscall_num = regs->eax;
-    
-    // 检查系统调用号是否有效
-    if (syscall_num >= MAX_SYSCALLS) {
-        serial_write_string("[SYSCALL]\n");
-        regs->eax = -1;
-        return;
-    }
-    
-    // 调用对应的系统调用处理函数
-    syscall_handler_t handler = syscall_table[syscall_num];
-    if (handler) {
-        regs->eax = handler(regs);
-    } else {
-        serial_write_string("[SYSCALL]\n");
-        regs->eax = -1;
-    }
-}
-
-// SYS_exit - 退出当前进程
-int sys_exit_handler(struct regs* regs) {
-    int exit_code = regs->ebx;
-    task_exit(exit_code);
+// SYS_exit — exit current process
+uint64_t sys_exit_handler(struct regs* regs)
+{
+    (void)regs;
+    task_exit(0);
     return 0;
 }
 
-// SYS_fork - 创建新进程
-int sys_fork_handler(struct regs* regs) {
-    // 创建新进程，复制当前进程的上下文
-    task_t* child = create_task(
-        (void*)regs->eip, 
-        "forked", 
-        current_task->priority
-    );
-    if (!child) {
-        return -1;
-    }
-    
-    // 复制寄存器上下文（除了eax，设置为0表示子进程）
-    memcpy(&child->regs, regs, sizeof(regs_context_t));
-    child->regs.eax = 0; // 子进程返回0
-    
-    // 复制当前进程的内存管理信息
-    child->page_dir = current_task->page_dir;
-    child->heap_start = current_task->heap_start;
-    child->heap_end = current_task->heap_end;
-    child->memory_usage_kb = current_task->memory_usage_kb;
-    
-    // 复制用户栈顶
-    child->user_stack_top = current_task->user_stack_top;
-    
-    // 返回子进程的PID
-    return child->pid;
+// SYS_fork — create new process
+uint64_t sys_fork_handler(struct regs* regs)
+{
+    (void)regs;
+    // Simplified: fork not yet implemented in x86-64
+    return (uint64_t)-1;
 }
 
-// SYS_wait - 等待子进程退出
-int sys_wait_handler(struct regs* regs) {
-    uint32_t pid = regs->ebx;
-    
-    // 简化实现：仅返回成功
+// SYS_wait — wait for child
+uint64_t sys_wait_handler(struct regs* regs)
+{
+    (void)regs;
     return 0;
 }
 
-// SYS_write - 写入文件
-int sys_write_handler(struct regs* regs) {
-    int fd = regs->ebx;
-    const void* buf = (const void*)regs->ecx;
-    size_t count = regs->edx;
-    
-    // 简化实现：仅处理标准输出（fd=1）
+// SYS_write — write to file/stdout
+// SysV: arg1(rdi)=fd, arg2(rsi)=buf, arg3(rdx)=count
+uint64_t sys_write_handler(struct regs* regs)
+{
+    int fd = (int)regs->rdi;
+    const void* buf = (const void*)regs->rsi;
+    size_t count = (size_t)regs->rdx;
+
     if (fd == 1) {
-        // 写入VGA控制台
         kwrite(buf, count);
         return count;
     }
-    
-    return -1;
+    return (uint64_t)-1;
 }
 
-// SYS_read - 读取文件
-int sys_read_handler(struct regs* regs) {
-    int fd = regs->ebx;
-    void* buf = (void*)regs->ecx;
-    size_t count = regs->edx;
-    
-    // 从串口读（-nographic 模式下键盘走串口）
+// SYS_read — read from file/stdin
+// SysV: arg1(rdi)=fd, arg2(rsi)=buf, arg3(rdx)=count
+uint64_t sys_read_handler(struct regs* regs)
+{
+    int fd = (int)regs->rdi;
+    void* buf = (void*)regs->rsi;
+    size_t count = (size_t)regs->rdx;
+
     if (fd == 0) {
-        char *p = (char *)buf;
+        char* p = (char*)buf;
         size_t i = 0;
         while (i < count) {
             char c = serial_read_char();
             p[i++] = c;
-            serial_write_char(c);   /* 回显 */
+            serial_write_char(c);
             if (c == '\n' || c == '\r') break;
         }
-        return (int)i;
+        return (uint64_t)i;
     }
-    
-    // fd > 0: 从文件系统读
-    if (fd > 0 && fd < 16) {
-        extern char open_path_table[16][256];
-        if (open_path_table[fd][0] != 0) {
-            inode_t* inode = NULL;
-            char* basename = NULL;
-            vfs_path_resolve(open_path_table[fd], &inode, &basename);
-            if (inode) {
-                return (int)vfs_read(inode, buf, count, 0);
-            }
-        }
-    }
-    return -1;
+    return (uint64_t)-1;
 }
 
 char open_path_table[16][256];
 
-// SYS_open - 打开文件
-int sys_open_handler(struct regs* regs) {
-    const char* path = (const char*)regs->ebx;
-    (void)regs->ecx;
+// SYS_open — open file
+// SysV: arg1(rdi)=path, arg2(rsi)=flags
+uint64_t sys_open_handler(struct regs* regs)
+{
+    const char* path = (const char*)regs->rdi;
+    int flags = (int)regs->rsi;
+    (void)flags;
     static int next_fd = 2;
     int fd = next_fd;
-    if (next_fd < 15) next_fd++;
-    else next_fd = 2;
+    if (next_fd < 15) next_fd++; else next_fd = 2;
     int i;
     for (i = 0; i < 255 && path[i]; i++)
         open_path_table[fd][i] = path[i];
     open_path_table[fd][i] = 0;
-    return fd;
+    return (uint64_t)fd;
 }
 
-// SYS_close - 关闭文件
-int sys_close_handler(struct regs* regs) {
-    int fd = regs->ebx;
-    
-    // 简化实现：仅返回成功
+// SYS_close — close file
+uint64_t sys_close_handler(struct regs* regs)
+{
+    (void)regs;
     return 0;
 }
 
-// SYS_mmap - 内存映射
-int sys_mmap_handler(struct regs* regs) {
-    void* addr = (void*)regs->ebx;
-    size_t length = regs->ecx;
-    int prot = regs->edx;
-    int flags = regs->esi;
-    int fd = regs->edi;
-    off_t offset = regs->ebp;
-    
-    // 简化实现：调用mmap函数
-    void* mapped_addr = mmap(addr, length, prot, flags, fd, offset);
-    if (!mapped_addr) {
-        return -1;
-    }
-    
-    return (int)mapped_addr;
+// SYS_mmap — memory map
+uint64_t sys_mmap_handler(struct regs* regs)
+{
+    (void)regs;
+    return (uint64_t)-1;
 }
 
-// SYS_munmap - 取消内存映射
-int sys_munmap_handler(struct regs* regs) {
-    void* addr = (void*)regs->ebx;
-    size_t length = regs->ecx;
-    
-    // 简化实现：调用munmap函数
-    return munmap(addr, length);
+// SYS_munmap — unmap memory
+uint64_t sys_munmap_handler(struct regs* regs)
+{
+    (void)regs;
+    return 0;
 }
 
-// SYS_sbrk - 调整进程堆大小
-int sys_sbrk_handler(struct regs* regs) {
-    intptr_t increment = regs->ebx;
-    uint32_t old_heap_end = current_task->heap_end;
-    uint32_t new_heap_end = old_heap_end + increment;
-    
-    // 首次调用时初始化堆
-    if (current_task->heap_start == 0) {
-        // 从用户空间高端开始分配堆
-        current_task->heap_start = 0x08048000 + 0x1000; // 假设程序从0x08048000开始
-        current_task->heap_end = current_task->heap_start;
-        old_heap_end = current_task->heap_start;
-        new_heap_end = old_heap_end + increment;
-    }
-    
-    // 确保堆大小不会超过用户空间
-    if (new_heap_end > 0xC0000000) {
-        return -1;
-    }
-    
-    // 调整堆大小
-    current_task->heap_end = new_heap_end;
-    
-    // 更新内存使用统计
-    current_task->memory_usage_kb += (increment + 1023) / 1024;
-    
-    // 返回旧的堆结束地址
-    return old_heap_end;
+// SYS_sbrk — adjust heap
+// arg1(rdi)=increment
+uint64_t sys_sbrk_handler(struct regs* regs)
+{
+    intptr_t increment = (intptr_t)regs->rdi;
+    uint64_t old = current_task->heap_end;
+    uint64_t new = old + increment;
+    if (current_task->heap_start == 0)
+        current_task->heap_start = current_task->heap_end = USER_VIRT_START + 0x1000;
+    current_task->heap_end = new;
+    return old;
 }
 
-// SYS_sleep - 进程睡眠
-int sys_sleep_handler(struct regs* regs) {
-    unsigned int seconds = regs->ebx;
-    
-    // 简化实现：使用时钟中断计数
-    uint32_t start_ticks = get_system_ticks();
-    uint32_t end_ticks = start_ticks + seconds * 100;
-    
-    // 将进程状态改为阻塞
+// SYS_sleep — sleep
+// arg1(rdi)=seconds
+uint64_t sys_sleep_handler(struct regs* regs)
+{
+    unsigned int seconds = (unsigned int)regs->rdi;
+    uint64_t start = get_system_ticks();
+    uint64_t end = start + seconds * 100;
     current_task->state = TASK_BLOCKED;
-    
-    // 循环检查时间，直到超时
-    while (get_system_ticks() < end_ticks) {
-        schedule();
-    }
-    
-    // 恢复进程状态为就绪
+    while (get_system_ticks() < end) { /* busy wait */ }
     current_task->state = TASK_READY;
-    
     return 0;
 }
 
-// SYS_execve - 替换当前进程映像
-int sys_execve_handler(struct regs* regs) {
-    const char* path = (const char*)regs->ebx;
-    char* const* argv = (char* const*)regs->ecx;
-    char* const* envp = (char* const*)regs->edx;
-    
-    uint32_t entry_point;
-    
-    // 加载ELF文件
+// SYS_execve — replace process image
+// SysV: arg1(rdi)=path, arg2(rsi)=argv, arg3(rdx)=envp
+uint64_t sys_execve_handler(struct regs* regs)
+{
+    const char* path = (const char*)regs->rdi;
+    (void)regs;
+
+    uint64_t entry_point;
     if (elf_load(path, &entry_point) < 0) {
-        return -1;
+        return (uint64_t)-1;
     }
-    
-    // 设置进程名
+
     strncpy(current_task->name, path, sizeof(current_task->name) - 1);
     current_task->name[sizeof(current_task->name) - 1] = '\0';
-    
-    // 设置新的入口点
-    current_task->regs.eip = entry_point;
-    
-    // 简化实现：不处理argv和envp
-    
-    serial_write_string("[SYSCALL]\n");
-    
+    current_task->regs.rip = entry_point;
+
+    serial_write_string("[SYSCALL] execve done\n");
     return 0;
 }
 
-// 初始化系统调用
+// Initialize syscall: set up IA32_STAR / IA32_LSTAR MSRs for syscall/sysret
 extern void syscall_stub(void);
-void syscall_init(void) {
-    register_interrupt_handler(0x80, syscall_stub);
-}
+void syscall_init(void)
+{
+    serial_write_string("[SYSCALL] init x86-64 syscall via MSR\n");
 
-/* 汇编 stub 调用此函数，参数直接从寄存器来 */
-int syscall_dispatch(int num, int arg1, int arg2, int arg3) {
-    struct regs r;
-    r.eax = num;
-    r.ebx = arg1;
-    r.ecx = arg2;
-    r.edx = arg3;
-    if (num >= MAX_SYSCALLS || num < 0) {
-        serial_write_string("[SYSCALL] invalid: ");
-        serial_write_hex(num);
-        serial_write_string("\n");
-        return -1;
-    }
-    syscall_handler_t handler = syscall_table[num];
-    if (handler) return handler(&r);
-    return -1;
+    // IA32_STAR: bits [47:32]=syscall CS/SS, bits [63:48]=sysret CS/SS
+    //   kernel code at 0x08, kernel data at 0x10, user code at 0x1B, user data at 0x23
+    uint64_t star = ((uint64_t)0x08 << 32) | ((uint64_t)0x1B << 48);
+    __asm__ volatile("wrmsr" : : "a"(star & 0xFFFFFFFF), "d"(star >> 32), "c"(0xC0000081));
+
+    // IA32_LSTAR: address of syscall entry (must be 64-bit)
+    uint64_t lstar = (uint64_t)(uintptr_t)syscall_stub;
+    __asm__ volatile("wrmsr" : : "a"(lstar & 0xFFFFFFFF), "d"(lstar >> 32), "c"(0xC0000082));
+
+    // IA32_FMASK: RFLAGS mask (disable IF by default, can enable per-call)
+    uint64_t fmask = 0x200;  // IF bit masked = 0 (interrupts enabled during syscalls)
+    __asm__ volatile("wrmsr" : : "a"(fmask & 0xFFFFFFFF), "d"(fmask >> 32), "c"(0xC0000084));
+
+    serial_write_string("[SYSCALL] MSRs written, syscall ready\n");
 }

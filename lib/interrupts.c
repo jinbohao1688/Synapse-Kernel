@@ -6,7 +6,6 @@
 
 static void default_handler(void)
 {
-    /* 发送 EOI 给 PIC，让中断继续正常工作，不死循环 */
     __asm__ volatile("outb %0, %1" : : "a"((uint8_t)0x20), "Nd"((uint16_t)0x20));
 }
 
@@ -16,89 +15,52 @@ static idt_ptr_t idt_ptr;
 void idt_set_gate(uint8_t num, uint64_t base, uint16_t sel, uint8_t flags)
 {
     idt[num].offset_low  = base & 0xFFFF;
+    idt[num].offset_mid  = (base >> 16) & 0xFFFF;
+    idt[num].offset_high = (base >> 32) & 0xFFFFFFFF;
     idt[num].selector    = sel;
-    idt[num].zero        = 0;
+    idt[num].ist         = 0;
     idt[num].type_attr   = flags;
-    idt[num].offset_high = (base >> 16) & 0xFFFF;
+    idt[num].reserved    = 0;
 }
 
-
-
-void register_interrupt_handler(uint8_t num, void* handler) {
-    idt_set_gate(num, (uint64_t)(uint32_t)handler, 0x08, 0x8E);
+void register_interrupt_handler(uint8_t num, void* handler)
+{
+    idt_set_gate(num, (uint64_t)(uintptr_t)handler, 0x08, IDT_TYPE_INTERRUPT_64);
 }
 
 void idt_init(void)
 {
-    serial_write_string("[IDT] step0: IDT_ENTRIES=");
-    serial_write_hex(IDT_ENTRIES);
-    serial_write_string("\n");
-
-    serial_write_string("[IDT] step1: sizeof idt_entry_t=");
-    serial_write_hex(sizeof(idt_entry_t));
+    serial_write_string("[IDT] init x86-64 IDT\n");
+    serial_write_string("[IDT] sizeof(idt_entry_t)=");
+    serial_write_hex64(sizeof(idt_entry_t));
     serial_write_string("\n");
 
     idt_ptr.limit = (sizeof(idt_entry_t) * IDT_ENTRIES) - 1;
-    idt_ptr.base = (uint32_t)idt;
-    serial_write_string("[IDT] step2: idt_ptr.limit=");
-    serial_write_hex(idt_ptr.limit);
-    serial_write_string(" idt_addr=");
-    serial_write_hex((uint32_t)&idt);
-    serial_write_string(" idt_size=");
-    serial_write_hex(sizeof(idt_entry_t) * IDT_ENTRIES);
-    serial_write_string("\n");
-
-    serial_write_string("[IDT] step2a: about to memset idt=");
-    serial_write_hex((uint32_t)idt);
-    serial_write_string(" size=");
-    serial_write_hex(sizeof(idt_entry_t) * IDT_ENTRIES);
-    serial_write_string("\n");
-    serial_write_string("[IDT] step2b: memset entry\n");
-    memset(idt, 0, sizeof(idt_entry_t) * IDT_ENTRIES);
-    serial_write_string("[IDT] step2c: memset done\n");
-
-    serial_write_string("[IDT] step3: filling all 256 gates with default_handler...\n");
-    for (int i = 0; i < IDT_ENTRIES; i++) {
-        idt_set_gate(i, (uint64_t)(uint32_t)default_handler, 0x08, 0x8E);
-    }
-    serial_write_string("[IDT] step3a: default_handler=");
-    serial_write_hex((uint32_t)default_handler);
-    serial_write_string(" gate[0].offset_low=");
-    serial_write_hex(idt[0].offset_low);
-    serial_write_string(" selector=");
-    serial_write_hex(idt[0].selector);
-    serial_write_string(" type_attr=");
-    serial_write_hex(idt[0].type_attr);
-    serial_write_string(" offset_high=");
-    serial_write_hex(idt[0].offset_high);
-    serial_write_string("\n");
-    serial_write_string("[IDT] step3b: loading idt_ptr...\n");
-    serial_write_string("[IDT] lidt addr=");
-    serial_write_hex((uint32_t)&idt_ptr);
-    serial_write_string(" limit=");
-    serial_write_hex(idt_ptr.limit);
+    idt_ptr.base  = (uint64_t)(uintptr_t)idt;
+    serial_write_string("[IDT] limit=");
+    serial_write_hex64(idt_ptr.limit);
     serial_write_string(" base=");
-    serial_write_hex(idt_ptr.base);
+    serial_write_hex64(idt_ptr.base);
     serial_write_string("\n");
+
+    // Fill all entries with default handler
+    for (int i = 0; i < IDT_ENTRIES; i++) {
+        idt_set_gate(i, (uint64_t)(uintptr_t)default_handler, 0x08, IDT_TYPE_INTERRUPT_64);
+    }
+
     __asm__ volatile("lidt %0" : : "m"(idt_ptr));
     serial_write_string("[IDT] lidt done\n");
-    serial_write_string("[IDT] done\n");
 }
 
-void keyboard_handler_wrapper(void)
-{
-    keyboard_handler();
-}
+void keyboard_handler_wrapper(void);
 
 void keyboard_handler(void)
 {
     key_event_t event;
-
     if (keyboard_read(&event) && event.pressed && event.ascii != 0) {
         vga_putc(event.ascii);
     }
-
-    __asm__ volatile("outb %al, $0x20");
+    __asm__ volatile("mov al, 0x20; out 0x20, al" ::: "al");
 }
 
 void isr_install(void)
@@ -106,19 +68,23 @@ void isr_install(void)
     idt_init();
 }
 
-void timer_handler_wrapper(void);
-
 void irq_install(void)
 {
-    uint32_t keyboard_addr = (uint32_t)keyboard_handler_wrapper;
-    uint32_t timer_addr = (uint32_t)timer_handler_wrapper;
+    uint64_t keyboard_addr = (uint64_t)(uintptr_t)keyboard_handler_wrapper;
+    uint64_t timer_addr    = (uint64_t)(uintptr_t)keyboard_handler_wrapper; // placeholder
 
-    idt_set_gate(0x21, (uint64_t)keyboard_addr, 0x08, 0x8E);
-    idt_set_gate(0x20, (uint64_t)timer_addr, 0x08, 0x8E);
+    idt_set_gate(0x21, keyboard_addr, 0x08, IDT_TYPE_INTERRUPT_64);
+    idt_set_gate(0x20, timer_addr,    0x08, IDT_TYPE_INTERRUPT_64);
 
     __asm__ volatile("lidt %0" : : "m"(idt_ptr));
 
-    __asm__ volatile("inb $0x21, %al");
-    __asm__ volatile("andb $0xFC, %al");
-    __asm__ volatile("outb %al, $0x21");
+    // Unmask PIC IRQ0 (timer) and IRQ1 (keyboard)
+    __asm__ volatile(
+        "inb $0x21, %%al\n\t"
+        "and $0xFC, %%al\n\t"
+        "out %%al, $0x21\n\t"
+        :
+        :
+        : "al"
+    );
 }

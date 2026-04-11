@@ -5,20 +5,26 @@
 all: kernel
 
 # Cross-compilation toolchain prefix
-CROSS_COMPILE ?= i686-elf-
+CROSS_COMPILE ?= x86_64-linux-gnu-
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
 AS := $(CROSS_COMPILE)as
 NASM := nasm
 
 # Compiler flags
-CFLAGS := -ffreestanding -nostdlib -O0 -Wall -Wextra -std=gnu99 -Ikernel/include
+CFLAGS := -ffreestanding -nostdlib -O0 -Wall -Wextra -std=gnu99 -Ikernel/include -Iuser-lib/include -m64
 LDFLAGS := -T linker.ld -nostdlib
-NASMFLAGS := -f elf32
+NASMFLAGS := -f elf64
 
-# Kernel source files
+# Kernel-specific asm sources (in kernel/ subdirectories)
+KERNEL_ASM := kernel/proc/switch.asm kernel/table.asm kernel/syscall_stub.asm
+
+# Generic wildcard — but we EXCLUDE lib/ so .c files there go through GCC
+ASM_SOURCES := $(wildcard kernel/**/*.asm) $(wildcard kernel/*.asm)
+ASM_SOURCES := $(filter-out kernel/../%,$(ASM_SOURCES))
+
+# Kernel C source files
 BOOT_SOURCES := kernel/boot/boot.asm
-ASM_SOURCES := kernel/proc/switch.asm kernel/table.asm kernel/syscall_stub.asm
 C_SOURCES := kernel/main.c \
             kernel/mm/kheap.c \
             kernel/mm/paging.c \
@@ -32,9 +38,7 @@ C_SOURCES := kernel/main.c \
             kernel/syscall.c \
             kernel/executor.c
 
-KERNEL_SOURCES := $(C_SOURCES) $(ASM_SOURCES)
-
-# Library source files
+# Library source files (in lib/) — exclude user-space libc.c
 LIB_SOURCES := kernel/../lib/string.c \
                kernel/../lib/mem.c \
                kernel/../lib/vga.c \
@@ -44,14 +48,18 @@ LIB_SOURCES := kernel/../lib/string.c \
                kernel/../lib/shell.c \
                kernel/../lib/kprintf.c
 
-# Object files
-BOOT_OBJECTS := $(BOOT_SOURCES:.asm=.o)
-ASM_OBJECTS := $(ASM_SOURCES:.asm=.o)
-C_OBJECTS := $(C_SOURCES:.c=.o)
-KERNEL_OBJECTS := $(C_OBJECTS) $(ASM_OBJECTS)
-LIB_OBJECTS := $(LIB_SOURCES:.c=.o)
+# All C sources
+ALL_C_SOURCES := $(C_SOURCES) $(LIB_SOURCES)
 
-OBJECTS := $(BOOT_OBJECTS) $(KERNEL_OBJECTS) $(LIB_OBJECTS)
+# Object files (same directory as source)
+BOOT_OBJECTS := $(BOOT_SOURCES:.asm=.o)
+ASM_OBJECTS  := $(KERNEL_ASM:.asm=.o)
+KERNEL_C_OBJECTS := $(C_SOURCES:.c=.o)
+LIB_OBJECTS  := $(LIB_SOURCES:.c=.o)
+C_OBJECTS    := $(KERNEL_C_OBJECTS) $(LIB_OBJECTS)
+
+KERNEL_OBJECTS := $(C_OBJECTS) $(ASM_OBJECTS)
+OBJECTS       := $(BOOT_OBJECTS) $(KERNEL_OBJECTS)
 
 # Targets
 TARGET := synapse.bin
@@ -107,17 +115,17 @@ clean:
 # Run kernel in QEMU
 run: $(TARGET)
 	@echo "Running kernel in QEMU..."
-	@qemu-system-i386 -nographic -kernel $(TARGET) -m 128M -monitor none -serial stdio
+	@qemu-system-x86_64 -nographic -kernel $(TARGET) -m 128M -monitor none -serial stdio
 
 # Run kernel in QEMU with debug output
 debug: $(TARGET)
 	@echo "Running kernel in QEMU with debug output..."
-	@qemu-system-i386 -nographic -kernel $(TARGET) -m 128M -monitor none -serial stdio -d int -no-reboot
+	@qemu-system-x86_64 -nographic -kernel $(TARGET) -m 128M -monitor none -serial stdio -d int -no-reboot
 
 # Run kernel in QEMU with GDB support
 gdb: $(TARGET)
 	@echo "Running kernel in QEMU with GDB support..."
-	@qemu-system-i386 -nographic -kernel $(TARGET) -m 128M -monitor none -serial stdio -s -S
+	@qemu-system-x86_64 -nographic -kernel $(TARGET) -m 128M -monitor none -serial stdio -s -S
 
 # Help target
 help: 

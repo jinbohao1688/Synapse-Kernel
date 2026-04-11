@@ -8,23 +8,34 @@
 #include <proc/task.h>
 #include <mm/paging.h>
 
-/* icm_execve is provided by the syscall runtime (syscall_fix or user-lib) */
-extern int icm_execve(const char *path, char **argv, char **envp);
-/* Stub — kernel-space execve always fails; real exec needs user-space */
-int icm_execve(const char *path, char **argv, char **envp) {
+/* icm_execve — loads an ELF and jumps to it in user mode via iretq.
+   The trampoline RSP returned by elf_load points to a kernel-stack frame:
+     [rsp+0 ] = user RIP
+     [rsp+8 ] = user CS  (0x1B, RPL=3)
+     [rsp+16] = user RFLAGS
+     [rsp+24] = user RSP
+     [rsp+32] = user SS   (0x23, RPL=3)
+   iretq pops all 5 values, loads CS=0x1B, SS=0x23 → CPL=3 (user mode).
+   After iretq this function never returns. */
+extern int icm_execve(const char *path, char **argv, char **envp) {
     (void)argv; (void)envp;
-    uint32_t entry = 0;
+    uint64_t trampoline_rsp = 0;
     serial_write_string("[EXEC] elf_load: ");
     serial_write_string(path);
     serial_write_string("\n");
-    if (elf_load(path, &entry) < 0) {
+    if (elf_load(path, &trampoline_rsp) < 0) {
         serial_write_string("[EXEC] elf_load failed\n");
         return -1;
     }
-    serial_write_string("[EXEC] jumping to entry\n");
-    /* 直接调用入口点（内核态，无用户态隔离） */
-    typedef void (*entry_fn)(void);
-    ((entry_fn)entry)();
+    serial_write_string("[EXEC] iretq to user mode, rsp=0x");
+    serial_write_hex64(trampoline_rsp);
+    serial_write_string("\n");
+    __asm__ volatile(
+        "mov %0, %%rsp\n\t"
+        "iretq\n\t"
+        : : "r"(trampoline_rsp) : "memory"
+    );
+    __builtin_unreachable();
     return 0;
 }
 
@@ -210,7 +221,6 @@ void shell_cmd_free(int argc, char** argv)
     
     kprint("\nMemory Usage:\n");
     
-    // 获取内存信息
     size_t total = get_total_memory();
     size_t used = get_used_memory();
     size_t free = get_free_memory();
@@ -220,7 +230,6 @@ void shell_cmd_free(int argc, char** argv)
               total / 1024, used / 1024, free / 1024);
     kprint(buf);
     
-    // 获取内核堆信息
     size_t kheap_total, kheap_used, kheap_free;
     get_kheap_info(&kheap_total, &kheap_used, &kheap_free);
     
@@ -231,7 +240,7 @@ void shell_cmd_free(int argc, char** argv)
     kprint("\n");
 }
 
-// 显示正在运行的进程（简化版top命令）
+// 显示正在运行的进程
 void shell_cmd_top(int argc, char** argv)
 {
     UNUSED(argc);
@@ -313,12 +322,10 @@ void shell_run(void)
             }
             
             if (!found) {
-                // 尝试作为可执行文件执行
                 kprint("Executing: ");
                 kprint(argv[0]);
                 kprint("\n");
                 
-                // 使用sys_execve执行文件
                 int ret = icm_execve(argv[0], argv, NULL);
                 if (ret < 0) {
                     kprint("Failed to execute: ");

@@ -3,6 +3,6 @@
 
 #include <stdint.h>
 
-void kernel_main(uint32_t magic, uint32_t mbi_addr);
+void kernel_main(uint64_t magic, uint64_t mbi_addr);
 
 #endif

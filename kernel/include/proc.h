@@ -21,9 +21,9 @@ typedef struct process_control_block {
     uint32_t pid;                    // 进程ID
     process_state_t state;           // 进程状态
     char name[32];                   // 进程名称
-    uint32_t* esp;                   // 栈指针
-    uint32_t* ebp;                   // 基址指针
-    page_directory_t* page_dir;      // 进程页目录
+    uint64_t* esp;                  // 栈指针
+    uint64_t* ebp;                  // 基址指针
+    pml4_t* page_dir;               // 进程页目录（PML4）
     uint32_t priority;               // 进程优先级
     uint64_t ticks;                  // 进程运行时间片
     struct process_control_block* next;  // 下一个进程（用于链表）

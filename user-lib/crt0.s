@@ -2,29 +2,22 @@
 .global _start
 
 _start:
-    # Initialize stack pointer
-    movl $__stack_end, %esp
-    
-    # Clear EBP (frame pointer)
-    xorl %ebp, %ebp
-    
-    # Push argc and argv (simulated for now)
-    xorl %eax, %eax
-    pushl %eax  # argv[0] = NULL (end of argv)
-    pushl %eax  # argv = NULL (no arguments)
-    pushl %eax  # argc = 0
-    
-    # Call main()
+    mov rsp, __stack_end
+    xor ebp, ebp
+
+    xor edi, edi          ; argc = 0
+    lea rsi, [rsp + 8]    ; argv = rsp + 8 (after argc, before envp)
+    xor edx, edx          ; envp = NULL
+
     call main
-    
-    # Exit with main's return value
-    movl %eax, %ebx
-    movl $1, %eax  # syscall: exit
-    int $0x80
+
+    mov edi, eax
+    mov eax, 60           ; syscall number for exit
+    syscall
 
 .section .bss
-.align 4
+.align 16
 .global __stack
 __stack:
-    .space 4096  # 4KB stack
+    .space 4096
 __stack_end:

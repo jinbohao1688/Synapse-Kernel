@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <mm/paging.h>
 
-// 进程状态枚举
+// Process state enumeration
 typedef enum {
     TASK_RUNNING,
     TASK_READY,
@@ -12,52 +12,54 @@ typedef enum {
     TASK_ZOMBIE
 } task_state_t;
 
-// 寄存器上下文结构（用于切换）
+// Register context structure (x86-64, must match switch.asm offsets)
 typedef struct {
-    uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;
-    uint32_t eip, eflags;
-    uint32_t cs, ds, es, fs, gs, ss;
+    uint64_t r15, r14, r13, r12;
+    uint64_t r11, r10, r9, r8;
+    uint64_t rbp, rdi, rsi, rdx, rax, rcx, rbx;
+    uint64_t rip, rsp, rflags;
+    uint64_t page_dir;
 } regs_context_t;
 
-// 进程控制块（PCB）
+// Process control block (PCB) for x86-64
 typedef struct task {
-    uint32_t pid;                    // 进程ID
-    task_state_t state;              // 状态
-    uint32_t priority;               // 优先级（0-15）
-    
-    // 内存管理集成点（关键！）
-    page_directory_t* page_dir;      // 页目录指针（利用现有内存保护）
-    uint32_t kernel_stack_top;       // 内核栈顶
-    uint32_t user_stack_top;         // 用户栈顶
-    uint32_t heap_start;             // 堆起始地址
-    uint32_t heap_end;               // 堆结束地址
-    
-    // 上下文
-    regs_context_t regs;             // 寄存器保存区
-    
-    // 调度信息
-    uint32_t time_slice;             // 剩余时间片
-    uint32_t total_runtime;          // 总运行时间
-    uint32_t last_scheduled;         // 上次调度时间戳
-    
-    // 进程关系
-    struct task* parent;             // 父进程
-    struct task* children;           // 子进程链表
-    struct task* sibling_next;       // 兄弟进程链表
-    
-    // 资源统计（为AI监控准备）
-    uint32_t memory_usage_kb;        // 内存使用（KB）
-    char name[32];                   // 进程名
+    uint64_t pid;                    // Process ID
+    task_state_t state;              // State
+
+    // Memory management
+    page_entry_t* page_dir;        // Page map level 4 pointer
+    uint64_t kernel_stack_top;       // Kernel stack top
+    uint64_t user_stack_top;         // User stack top
+    uint64_t heap_start;             // Heap start
+    uint64_t heap_end;               // Heap end
+
+    // Context
+    regs_context_t regs;             // Register save area
+
+    // Scheduling
+    uint32_t priority;               // Priority (0-15)
+    uint32_t time_slice;            // Remaining time slice
+    uint32_t total_runtime;          // Total runtime
+    uint32_t last_scheduled;         // Last scheduled timestamp
+
+    // Process relationships
+    struct task* parent;             // Parent process
+    struct task* children;           // Child process list
+    struct task* sibling_next;       // Sibling list
+
+    // Resource statistics
+    uint32_t memory_usage_kb;        // Memory usage (KB)
+    char name[32];                   // Process name
 } task_t;
 
-// 最大优先级
+// Maximum priority
 #define MAX_PRIORITY 16
 
-// 全局变量声明
+// Global variable declarations
 extern task_t* current_task;
 extern task_t* ready_queue[MAX_PRIORITY];
 
-// 进程管理函数声明
+// Process management functions
 void sched_init(void);
 task_t* create_task(void (*entry)(void), const char* name, uint32_t priority);
 void schedule(void);

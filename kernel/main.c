@@ -12,10 +12,11 @@
 #include <fs.h>
 #include <proc/task.h>
 #include <serial.h>
+#include <syscall.h>
 
 extern void init_procfs(void);
 
-void kernel_main(uint32_t magic, uint32_t mbi_addr)
+void kernel_main(uint64_t magic, uint64_t mbi_addr)
 {
     UNUSED(magic);
     UNUSED(mbi_addr);
@@ -41,18 +42,16 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr)
 
     init_kheap();
     serial_write_string("[OK] init_kheap\n");
-
-    /* ── 堆验证（确认后可删） ────────────────────────── */
-    volatile uint32_t *probe = (volatile uint32_t *)KHEAP_START;
-    *probe = 0xDEADBEEFu;
-    if (*probe == 0xDEADBEEFu)
-        serial_write_string("[VERIFY] heap rw: PASS\n");
-    else
-        serial_write_string("[VERIFY] heap rw: FAIL\n");
-
-    void *p = kmalloc(64);
-    if (p) serial_write_string("[VERIFY] kmalloc: PASS\n");
-    else   serial_write_string("[VERIFY] kmalloc: FAIL\n");
+    //     // /* ── 堆验证（确认后可删） ────────────────────────── */
+    // volatile uint64_t *probe = (volatile uint64_t *)KHEAP_START;
+    // *probe = 0xDEADBEEFull;
+    // if (*probe == 0xDEADBEEFull)
+    // serial_write_string("[VERIFY] heap rw: PASS\n");
+    // else
+    // serial_write_string("[VERIFY] heap rw: FAIL\n");
+    //     // void *p = kmalloc(64);
+    // if (p) serial_write_string("[VERIFY] kmalloc: PASS\n");
+    // else   serial_write_string("[VERIFY] kmalloc: FAIL\n");
     /* ────────────────────────────────────────────────── */
 
     serial_write_string("[OK] Memory OK\n");

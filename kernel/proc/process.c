@@ -1,5 +1,6 @@
 #include <proc.h>
 #include <mm/paging.h>
+#include <mm/kheap.h>
 #include <string.h>
 #include <vga.h>
 #include <serial.h>
@@ -50,7 +51,7 @@ void init_process_management(void) {
     kernel_process->pid = 0;
     kernel_process->state = PROCESS_RUNNING;
     strcpy(kernel_process->name, "kernel");
-    kernel_process->page_dir = get_kernel_page_dir();
+    kernel_process->page_dir = get_kernel_pml4();
     kernel_process->priority = 10;
     kernel_process->ticks = 0;
     
@@ -77,7 +78,7 @@ pcb_t* create_process(const char* name, void (*entry_point)(void), uint32_t prio
     process->ticks = 0;
     
     // 创建进程页目录（复制内核页目录）
-    process->page_dir = (page_directory_t*)kmalloc(sizeof(page_directory_t));
+    process->page_dir = (page_entry_t*)kmalloc(sizeof(page_entry_t) * PML4_ENTRIES);
     if (!process->page_dir) {
         kfree(process);
         serial_write_string("[LOG]\n");
@@ -85,7 +86,7 @@ pcb_t* create_process(const char* name, void (*entry_point)(void), uint32_t prio
     }
     
     // 复制内核页目录映射
-    memcpy(process->page_dir, get_kernel_page_dir(), sizeof(page_directory_t));
+    memcpy(process->page_dir, get_kernel_pml4(), sizeof(page_entry_t) * PML4_ENTRIES);
     
     // 分配用户栈
     uint32_t* stack = (uint32_t*)kmalloc(8192); // 8KB栈
@@ -121,7 +122,7 @@ void terminate_process(uint32_t pid) {
             serial_write_string("[LOG]\n");
             
             // 释放资源
-            if (process->page_dir && process->page_dir != get_kernel_page_dir()) {
+            if (process->page_dir && process->page_dir != (page_entry_t*)get_kernel_pml4()) {
                 // 释放页目录和页表（简化实现）
                 kfree(process->page_dir);
             }

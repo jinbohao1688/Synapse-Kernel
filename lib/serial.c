@@ -49,6 +49,26 @@ void serial_write_hex(uint32_t val)
     }
 }
 
+void serial_write_hex64(uint64_t val)
+{
+    serial_write_char('0');
+    serial_write_char('x');
+    const char hex_chars[] = "0123456789ABCDEF";
+    for (int i = 15; i >= 0; i--) {
+        serial_write_char(hex_chars[(val >> (i * 4)) & 0xF]);
+    }
+}
+
+void serial_write_hex16(uint16_t val)
+{
+    serial_write_char('0');
+    serial_write_char('x');
+    const char hex_chars[] = "0123456789ABCDEF";
+    for (int i = 3; i >= 0; i--) {
+        serial_write_char(hex_chars[(val >> (i * 4)) & 0xF]);
+    }
+}
+
 bool serial_can_read(void)
 {
     return serial_inb(SERIAL_COM1_BASE + 5) & SERIAL_DATA_READY;

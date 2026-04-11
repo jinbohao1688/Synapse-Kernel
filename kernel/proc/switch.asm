@@ -1,108 +1,123 @@
-; 上下文切换汇编实现
+; switch.asm — x86-64 context switch for process scheduler
+; =============================================================================
 ; void switch_to(task_t* old_task, task_t* new_task)
+; =============================================================================
+[BITS 64]
 
-[BITS 32]
-
-; 全局函数声明
 global switch_to
 global switch_process
 global timer_handler_wrapper
 
 extern timer_interrupt_handler
 
-; switch_process - 进程切换包装函数
-; void switch_process(task_t* next_process)
+; Save callee-saved + special registers to old_task->regs
+; Restore from new_task->regs
+; Stack frame layout on entry:
+;   [rsp+8]  = old_task (arg1)
+;   [rsp+16] = new_task (arg2)
+switch_to:
+    mov rax, rdi            ; rax = old_task
+
+    ; Save callee-saved registers to [old_task + offset]
+    ; regs.r15 = offset 0
+    mov [rax + 0],  r15
+    mov [rax + 8],  r14
+    mov [rax + 16], r13
+    mov [rax + 24], r12
+    mov [rax + 32], r11
+    mov [rax + 40], r10
+    mov [rax + 48], r9
+    mov [rax + 56], r8
+    mov [rax + 64], rbp
+    mov [rax + 72], rdi      ; rdi saved here (it got clobbered)
+    mov [rax + 80], rsi
+    mov [rax + 88], rdx
+    mov [rax + 96], rax      ; original rax
+    mov [rax + 104], rcx
+    mov [rax + 112], rbx
+
+    ; Save RSP (return address is on top of our hypothetical stack)
+    ; We need to save the caller's RSP. Since we're called with call,
+    ; the return address is at [rsp] already.
+    mov rbx, [rsp]          ; return address = RIP
+    mov [rax + 120], rbx    ; regs.rip
+
+    mov rbx, rsp
+    add rbx, 8              ; RSP after return addr is pushed
+    mov [rax + 128], rbx    ; regs.rsp (caller's rsp)
+
+    ; Save RFLAGS
+    pushfq
+    pop rbx
+    mov [rax + 136], rbx    ; regs.rflags
+
+    ; --- Restore new task ---
+    mov rax, rsi            ; rax = new_task
+
+    ; Reload callee-saved registers
+    mov r15, [rax + 0]
+    mov r14, [rax + 8]
+    mov r13, [rax + 16]
+    mov r12, [rax + 24]
+    mov r11, [rax + 32]
+    mov r10, [rax + 40]
+    mov r9,  [rax + 48]
+    mov r8,  [rax + 56]
+    mov rbp, [rax + 64]
+    ; Skip rdi/rsi/rbp (restored separately)
+    mov rdx, [rax + 88]
+    ; rax restored last
+    mov rcx, [rax + 104]
+    mov rbx, [rax + 112]
+
+    ; Switch page directory
+    mov rdx, [rax + 120 + 8]  ; offset for page_dir in task_t (needs alignment)
+    mov cr3, rdx
+
+    ; Build iretq stack frame on the new task's kernel stack:
+    ;   RSP ← task->regs.rsp
+    ;   RIP ← task->regs.rip
+    ;   CS  ← 0x08 (kernel code)
+    ;   RFLAGS ← task->regs.rflags
+    ;   SS  ← 0x10 (kernel data)
+    mov rsp, [rax + 128]    ; new RSP
+
+    push qword [rax + 136]  ; RFLAGS
+    push qword 0x08         ; CS
+    push qword [rax + 120]  ; RIP
+
+    iretq
+
+; switch_process — wrapper that calls switch_to(current_task, next)
 switch_process:
-    ; 获取当前任务指针（从全局变量）
     extern current_task
-    mov eax, [current_task]
-    ; 调用 switch_to(current_task, next_process)
-    mov edx, eax              ; edx = current_task (old)
-    mov eax, [esp + 4]        ; eax = next_process (new)
+    mov rax, [current_task]
+    mov rdx, rax              ; old = current_task
+    mov rax, rdi              ; new = arg1 (next_task)
     jmp switch_to
 
-; 上下文切换函数
-switch_to:
-    ; 保存旧进程上下文到 old_task->regs
-    mov eax, [esp + 4]        ; 获取 old_task 指针
-    test eax, eax             ; 检查 old_task 是否为 NULL（首次调度）
-    jz .no_save               ; 如果为 NULL，跳过保存
-    
-    ; 保存通用寄存器到 old_task->regs 结构体
-    mov [eax + 28], edi       ; regs.edi = edi
-    mov [eax + 32], esi       ; regs.esi = esi
-    mov [eax + 36], ebp       ; regs.ebp = ebp
-    mov [eax + 40], esp       ; regs.esp = esp
-    mov [eax + 44], ebx       ; regs.ebx = ebx
-    mov [eax + 48], edx       ; regs.edx = edx
-    mov [eax + 52], ecx       ; regs.ecx = ecx
-    mov [eax + 56], eax       ; regs.eax = eax
-    
-    ; 保存EIP（返回地址）
-    mov ecx, [esp]            ; 获取返回地址
-    mov [eax + 60], ecx       ; regs.eip = 返回地址
-    
-    ; 保存EFLAGS
-    pushfd                    ; 将EFLAGS压栈
-    pop ecx                   ; 弹出到ecx
-    mov [eax + 64], ecx       ; regs.eflags = ecx
-    
-    ; 保存段寄存器
-    mov [eax + 68], cs        ; regs.cs = cs
-    mov [eax + 72], ds        ; regs.ds = ds
-    mov [eax + 76], es        ; regs.es = es
-    mov [eax + 80], fs        ; regs.fs = fs
-    mov [eax + 84], gs        ; regs.gs = gs
-    mov [eax + 88], ss        ; regs.ss = ss
-
-.no_save:
-    ; 恢复新进程上下文从 new_task->regs
-    mov eax, [esp + 8]        ; 获取 new_task 指针
-    
-    ; 切换页目录（关键！实现进程隔离）
-    mov ecx, [eax + 24]       ; 获取 new_task->page_dir
-    mov cr3, ecx              ; 设置CR3寄存器，切换页目录
-    
-    ; 恢复通用寄存器
-    mov edi, [eax + 28]       ; edi = regs.edi
-    mov esi, [eax + 32]       ; esi = regs.esi
-    mov ebp, [eax + 36]       ; ebp = regs.ebp
-    mov ebx, [eax + 44]       ; ebx = regs.ebx
-    mov edx, [eax + 48]       ; edx = regs.edx
-    mov ecx, [eax + 52]       ; ecx = regs.ecx
-    mov eax, [eax + 56]       ; eax = regs.eax
-    
-    ; 恢复段寄存器（除CS，由iret恢复）
-    mov ds, [eax + 72]        ; ds = regs.ds
-    mov es, [eax + 76]        ; es = regs.es
-    mov fs, [eax + 80]        ; fs = regs.fs
-    mov gs, [eax + 84]        ; gs = regs.gs
-    mov ss, [eax + 88]        ; ss = regs.ss
-    
-    ; 恢复EFLAGS和EIP（通过iret指令）
-    push dword [eax + 88]     ; 压入ss
-    push dword [eax + 40]     ; 压入esp
-    push dword [eax + 64]     ; 压入eflags
-    push dword [eax + 68]     ; 压入cs
-    push dword [eax + 60]     ; 压入eip
-    
-    ; 强制返回，恢复上下文
-    iret                     ; 从栈中弹出eip、cs、eflags、esp、ss，并跳转
-
-; 时钟中断处理包装函数
+; timer_handler_wrapper — called from IRQ0
 timer_handler_wrapper:
-    ; 保存所有通用寄存器
-    pusha
-    
-    ; 调用C处理函数
+    push rbp
+    mov rbp, rsp
+
+    ; Save all registers
+    push rax; push rcx; push rdx; push rbx
+    push rbp; push rsi; push rdi
+    push r8;  push r9;  push r10; push r11
+    push r12; push r13; push r14; push r15
+
     call timer_interrupt_handler
-    
-    ; 恢复所有通用寄存器
-    popa
-    
-    ; 发送EOI信号
+
+    ; Send EOI to PIC
     mov al, 0x20
     out 0x20, al
-    
-    ; 中断返回
-    iret
+
+    ; Restore registers
+    pop r15; pop r14; pop r13; pop r12
+    pop r11; pop r10; pop r9;  pop r8
+    pop rdi; pop rsi; pop rbp
+    pop rbx; pop rdx; pop rcx; pop rax
+
+    pop rbp
+    iretq
