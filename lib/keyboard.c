@@ -23,15 +23,8 @@ static bool caps_lock = false;
 
 void keyboard_init(void)
 {
+    /* PS/2 键盘初始化在 QEMU -nographic 模式下跳过（无 PS/2 控制器） */
     __asm__ volatile("cli");
-    
-    __asm__ volatile("inb $0x61, %al");
-    __asm__ volatile("orb $0x80, %al");
-    __asm__ volatile("outb %al, $0x61");
-    __asm__ volatile("andb $0x7F, %al");
-    __asm__ volatile("outb %al, $0x61");
-    
-    __asm__ volatile("sti");
 }
 
 char keyboard_get_scancode(void)

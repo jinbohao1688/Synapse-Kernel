@@ -103,3 +103,4 @@ extern int elf_load(const char* path, uint64_t* entry_point);
 extern void elf_cleanup(void);
 
 #endif // LOADER_ELF_H
+void __attribute__((noreturn)) jump_to_user(uint64_t rsp);

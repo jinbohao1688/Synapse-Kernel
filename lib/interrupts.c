@@ -60,7 +60,12 @@ void keyboard_handler(void)
     if (keyboard_read(&event) && event.pressed && event.ascii != 0) {
         vga_putc(event.ascii);
     }
-    __asm__ volatile("mov al, 0x20; out 0x20, al" ::: "al");
+    __asm__ volatile("outb %0, %1" : : "a"((uint8_t)0x20), "Nd"((uint16_t)0x20));
+}
+
+void keyboard_handler_wrapper(void)
+{
+    keyboard_handler();
 }
 
 void isr_install(void)

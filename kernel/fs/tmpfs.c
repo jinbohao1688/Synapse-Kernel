@@ -208,6 +208,7 @@ static fs_operations_t tmpfs_ops = {
 
 // 初始化文件系统
 void init_filesystem(void) {
+    serial_write_string("[FS] zeroing fd table\n");
     // 初始化文件描述符表
     for (int i = 0; i < MAX_FILES; i++) {
         file_descriptors[i].used = false;
@@ -215,11 +216,9 @@ void init_filesystem(void) {
         file_descriptors[i].offset = 0;
         file_descriptors[i].flags = 0;
     }
-    
     serial_write_string("[FS] before mount\n");
     mount(NULL, "/", FS_TYPE_TMPFS, 0);
     serial_write_string("[FS] after mount\n");
-    
     serial_write_string("[FS] Filesystem initialized\n");
 }
 
@@ -228,38 +227,26 @@ int mount(const char* source, const char* target, uint8_t fs_type, uint32_t flag
     if (mount_point_count >= 16) {
         return -1;
     }
-    
     mount_point_t* mount_point = &mount_points[mount_point_count++];
     strcpy(mount_point->mount_point, target);
     mount_point->fs_type = fs_type;
-    
-    // 初始化不同类型的文件系统
     switch (fs_type) {
-        case FS_TYPE_TMPFS:
-            {
-                tmpfs_data_t* fs_data = (tmpfs_data_t*)kmalloc(sizeof(tmpfs_data_t));
-                if (!fs_data) {
-                    return -1;
-                }
-                
-                // 创建根目录inode
-                // 直接分配根 inode，不调用 tmpfs_create（避免鸡蛋问题）
-                inode_t* root = (inode_t*)kmalloc(sizeof(inode_t));
-                if (!root) { return -1; }
-                for (int _i = 0; _i < (int)sizeof(inode_t); _i++) ((char*)root)[_i] = 0;
-                root->type = FT_DIRECTORY;
-                root->permissions = 0755;
-                root->children = (dir_entry_t*)kmalloc(4 * sizeof(dir_entry_t));
-                root->child_count = 0;
-                fs_data->root_inode = root;
-                mount_point->fs_data = fs_data;
-                break;
-            }
-            
-        default:
-            return -1;
+        case FS_TYPE_TMPFS: {
+            tmpfs_data_t* fs_data = (tmpfs_data_t*)kmalloc(sizeof(tmpfs_data_t));
+            if (!fs_data) { return -1; }
+            inode_t* root = (inode_t*)kmalloc(sizeof(inode_t));
+            if (!root) { return -1; }
+            for (int _i = 0; _i < (int)sizeof(inode_t); _i++) ((char*)root)[_i] = 0;
+            root->type = FT_DIRECTORY;
+            root->permissions = 0755;
+            root->children = (dir_entry_t*)kmalloc(4 * sizeof(dir_entry_t));
+            root->child_count = 0;
+            fs_data->root_inode = root;
+            mount_point->fs_data = fs_data;
+            break;
+        }
+        default: return -1;
     }
-    
     serial_write_string("[FS] Mounted\n");
     return 0;
 }

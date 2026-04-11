@@ -155,19 +155,18 @@ int elf_load(const char* path, uint64_t* entry_point)
              [rsp+32] = SS
            iretq pops: RIP, CS, RFLAGS, RSP, SS (5 × 8 bytes = 40 bytes)
         */
-        uint8_t* kstack = (uint8_t*)kmalloc(4096);
+        uint8_t* kstack = (uint8_t*)kmalloc(8192);
         if (!kstack) {
             serial_write_string("[ELF] FATAL: cannot alloc kernel stack\n");
             return -1;
         }
-        /* kstack+4096 is the initial RSP (stack grows downward) */
-        uint64_t rsp_tramp = (uint64_t)(uintptr_t)(kstack + 4096);
-
-        rsp_tramp -= 8; *(uint64_t*)(rsp_tramp) = ehdr2.e_entry; /* user RIP */
-        rsp_tramp -= 8; *(uint64_t*)(rsp_tramp) = 0x1B;          /* user CS (RPL=3) */
-        rsp_tramp -= 8; *(uint64_t*)(rsp_tramp) = 0x202;         /* RFLAGS: IF=1 */
-        rsp_tramp -= 8; *(uint64_t*)(rsp_tramp) = user_stack_top; /* user RSP */
-        rsp_tramp -= 8; *(uint64_t*)(rsp_tramp) = 0x23;          /* user SS (RPL=3) */
+        /* 对齐到16字节，iretq压栈顺序：SS RSP RFLAGS CS RIP */
+        uint64_t rsp_tramp = ((uint64_t)(uintptr_t)(kstack + 8192)) & ~0xFULL;
+        rsp_tramp -= 8; *(uint64_t*)(rsp_tramp) = 0x23;           /* SS  RPL=3 */
+        rsp_tramp -= 8; *(uint64_t*)(rsp_tramp) = user_stack_top; /* RSP */
+        rsp_tramp -= 8; *(uint64_t*)(rsp_tramp) = 0x202;          /* RFLAGS IF=1 */
+        rsp_tramp -= 8; *(uint64_t*)(rsp_tramp) = 0x1B;           /* CS  RPL=3 */
+        rsp_tramp -= 8; *(uint64_t*)(rsp_tramp) = ehdr2.e_entry;  /* RIP */
 
         /* Return the trampoline RSP via entry_point */
         *entry_point = rsp_tramp;
@@ -219,4 +218,19 @@ cleanup:
 void elf_cleanup(void)
 {
     // Simplified: no special cleanup needed
+}
+
+/* 跳转到用户态，设置段寄存器后 iretq */
+void __attribute__((noreturn)) jump_to_user(uint64_t rsp) {
+    __asm__ volatile(
+        "mov $0x23, %%ax\n\t"
+        "mov %%ax, %%ds\n\t"
+        "mov %%ax, %%es\n\t"
+        "mov %%ax, %%fs\n\t"
+        "mov %%ax, %%gs\n\t"
+        "mov %0, %%rsp\n\t"
+        "iretq"
+        : : "r"(rsp) : "memory"
+    );
+    __builtin_unreachable();
 }

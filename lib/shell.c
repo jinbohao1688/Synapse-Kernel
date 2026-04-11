@@ -30,12 +30,8 @@ extern int icm_execve(const char *path, char **argv, char **envp) {
     serial_write_string("[EXEC] iretq to user mode, rsp=0x");
     serial_write_hex64(trampoline_rsp);
     serial_write_string("\n");
-    __asm__ volatile(
-        "mov %0, %%rsp\n\t"
-        "iretq\n\t"
-        : : "r"(trampoline_rsp) : "memory"
-    );
-    __builtin_unreachable();
+
+    jump_to_user(trampoline_rsp);
     return 0;
 }
 
